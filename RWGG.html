@@ -1,0 +1,689 @@
+<!doctype html>
+
+<html>
+	<head>
+<!--{{{ style-->
+		<style>
+			* {
+				font-family: sans-serif;
+				font-weight: 500;
+				color: #EFEEF1;
+				user-select: none;
+			}
+			body {
+				overflow: hidden;
+				margin: 0px;
+			}
+			table {
+				border: none;
+			}
+			#settings, #canvas {
+				position: absolute;
+				left: 0;
+				top: 0;
+				width: 100vw;
+				height: 100vh;
+			}
+			#show_settings {
+				display: none;
+				position: absolute;
+				margin: 0.5em;
+				font-size: 4em;
+				text-align: center;
+				line-height: 1em;
+				width: 1em;
+				height: 1em;
+				background-color: black;
+				border-radius: 0.15em;
+			}
+			#settings>h1 {
+				text-align: center;
+				transform: scaleX(2) scaleY(2.5);
+				letter-spacing: 0.1em;
+			}
+			#settings>form {
+				width: 75%;
+				margin: auto;
+				margin-top: 5em;
+			}
+			input[type="radio"], input[type="checkbox"] {
+				display: none;
+			}
+			input[type="checkbox"]+span {
+				border: 0.15em solid;
+				border-radius: 0.25em;
+				width: 1.25em;
+				height: 1.25em;
+			}
+			input[type="checkbox"]+span:after {
+				/* stops things before it from moving? */
+				content: ".";
+				color: transparent;
+			}
+			input[type="checkbox"]:checked+span:after {
+				content: "\2714";
+				padding-left: 0.2em;
+				color: #EFEEF1;
+			}
+			label.choice {
+				display: inline-block;
+			}
+			label.choice * {
+				color: #4B4653;
+			}
+			label.check.choice * {
+				color: #EFEEF1;
+			}
+			label.choice>span {
+				display: inline-block;
+				border: 0.15em solid;
+				border-radius: 0.6em;
+			}
+			label.text.choice {
+				margin-top: 0.5em;
+				margin-right: 0.5em;
+			}
+			label.text.choice>span {
+				width: 12.5em;
+			}
+			label.choice>span>span {
+				display: inline-block;
+				padding: 0.3em 0px 0.3em 0px;
+				margin: 0.15em;
+				width: calc(100% - 2 * 0.15em);
+				text-align: center;
+			}
+			label.choice>input[type="radio"]:checked+span, label.choice>input[type="radio"]:checked+span *, #play * {
+				color: #A9A4B2;
+			}
+			label.choice>input[type="radio"]:checked+span>span {
+				border: 0.15em solid;
+				border-radius: 0.7em;
+				/* account for border width */
+				padding: calc(0.3em - 0.15em) 0px calc(0.3em - 0.15em) 0px;
+				width: calc(100% - 2 * (0.15em + 0.15em));
+			}
+		</style>
+<!--}}}-->
+
+<!--{{{ script-->
+		<script type="application/javascript">
+			let settings = { "scroll_move": true, "dev": false, "color": false };
+			let x = 0;
+			let y = 0;
+			let zoom = 2;
+			let layer = 0;
+			let target_layer = 0;
+
+			function play() {
+				settings["dev"] = document.getElementById("dev").checked;
+				settings["color"] = document.getElementById("color").checked;
+				settings["scroll_move"] = document.getElementById("scroll_move").checked;
+				document.getElementById("settings").style.display = "none";
+				document.getElementById("show_settings").style.display = "inline";
+			}
+			function show_settings() {
+				document.getElementById("show_settings").style.display = "none";
+				document.getElementById("settings").style.removeProperty("display");
+			}
+
+	/*{{{ input*/
+			let mx = [0, 0];
+			let my = [0, 0];
+
+			document.onkeydown = function(e) {
+				switch(e.keyCode) {
+					case 65: // a
+					case 37: // left arrow
+						mx[0] = 1;
+						break;
+					case 87: // w
+					case 38: // up arrow
+						my[0] = 1;
+						break;
+					case 68: // d
+					case 39: // right arrow
+						mx[1] = 1;
+						break;
+					case 83: // s
+					case 40: // down arrow
+						my[1] = 1;
+						break;
+				}
+			}
+			document.onkeyup = function(e) {
+				switch(e.keyCode) {
+					case 32: // space
+						target_layer = (target_layer+1)%3;
+						break;
+					case 65: // a
+					case 37: // left arrow
+						mx[0] = 0;
+						break;
+					case 87: // w
+					case 38: // up arrow
+						my[0] = 0;
+						break;
+					case 68: // d
+					case 39: // right arrow
+						mx[1] = 0;
+						break;
+					case 83: // s
+					case 40: // down arrow
+						my[1] = 0;
+						break;
+				}
+			}
+			addEventListener("wheel", function(e) {
+				// should keep point under cursor at same place on screen but doesn't work
+				// feels decent so not bothering at the moment
+				let new_zoom = Math.min(300, Math.max(2, zoom*(1+(e.deltaY/60)/5)));
+				if(settings["scroll_move"] && zoom != 2) {
+					let ratio = window.innerHeight/window.innerWidth;
+					let target_x = 2*(e.x-window.innerWidth /2)/window.innerWidth;
+					x += (zoom-new_zoom)*target_x/(1+(1-Math.cos(Math.min(3.14/2.0, Math.abs(  Math.min(1, ratio)*target_x)/1.75))))/   Math.min(1, ratio);
+					let target_y = 2*(e.y-window.innerHeight/2)/window.innerHeight;
+					y += (zoom-new_zoom)*target_y/(1+(1-Math.cos(Math.min(3.14/2.0, Math.abs(1/Math.max(1, ratio)*target_y)/1.75))))/(1/Math.max(1, ratio));
+				}
+				zoom = new_zoom;
+			});
+	/*}}}*/
+
+	/*{{{ region_map/dev_coords(region)*/
+			region_map_coords = {
+				"CC": [ 1575,    1345],
+				"DS": [  550,    -450], // mildly arbitrary after GW finalized
+				"HI": [  880,     347],
+				"GW": [ 2787, 221-475], // preferred 2787, 221 to align with HI
+				"SI": [-1093,    1744], // preferred -1093, 1690 to align with LF and -522, 1744 to align with CC
+				"SU": [    0,       0],
+				"SH": [ 3950, -90+475], // preferred 3950, -90 to align with HI
+				"SL": [ 5400,    -550], // gave up on this having a decent location, so did Andrew and kip so it's fine
+				"LF": [-2148,     422],
+				"UW": [ 4310,    2050], // arbitrary after CC and SH finalized
+				"SB": [ -785,   -1230], // arbitrary after DS finalized
+				"SS": [5486,     3300]  // mildly arbitrary after UW finalized
+			}
+			region_dev_coords = { // these are a mess, I did my best
+				"CC": [ 2844-400-300, 2025+1700-800],
+				"DS": [          373,          -960],
+				"HI": [ 1885-400-300,  463+1700-800],
+				"GW": [         3240,          -300],
+				"SI": [        -1600,          2523],
+				"SU": [            0,             0],
+				"SH": [     5257-400,     -151+1700],
+				"SL": [         7145,          -228],
+				"LF": [        -2765,           657],
+				"UW": [         5300,          3640], // there are excellent reasons beyond your comprehension for this placement
+				"SB": [        -1370,         -2250],
+				"SS": [         6473,          5598]
+			}
+	/*}}}*/
+
+	/*{{{ region_color(region)*/
+			function region_color(region) {
+				switch(region) {
+					case "CC": return [1.00, 0.50, 0.00];
+					case "DS": return [0.80, 0.25, 0.85];
+					case "HI": return [0.45, 0.80, 0.85];
+					case "GW": return [0.55, 0.75, 0.25];
+					case "SI": return [1.00, 0.80, 0.65];
+					case "SU": return [0.20, 0.80, 0.60];
+					case "SH": return [0.30, 0.30, 0.30];
+					case "SL": return [0.95, 0.90, 0.80];
+					case "LF": return [0.40, 0.55, 0.60];
+					case "UW": return [0.70, 0.40, 0.25];
+					case "SB": return [0.80, 0.70, 0.20];
+					case "SS": return [0.75, 0.75, 0.75];
+				}
+			}
+	/*}}}*/
+
+	/*{{{ region_water_color(region)*/
+			function region_water_color(region) {
+				switch(region) {
+					case "GW": return [0.75, 0.45, 0.25, 1.00];
+					case "SL": return [0.30, 0.40, 0.20, 1.00];
+					default:   return [0.05, 0.10, 0.90, 0.75];
+				}
+			}
+	/*}}}*/
+
+			let gl;
+			let last = 0;
+			let display_delay = 0;
+			let programs = {};
+			let regions = { "count": 1, "loaded": 0 };
+			let rooms = [];
+
+	/*{{{ create_program(vertex_program, fragment_program)*/
+			function create_program(gl, vertex_program, fragment_program) {
+				let program = gl.createProgram();
+				let shaders = [gl.createShader(gl.VERTEX_SHADER), gl.createShader(gl.FRAGMENT_SHADER)];
+				gl.shaderSource(shaders[0], document.getElementById(vertex_program).textContent);
+				gl.compileShader(shaders[0]);
+				gl.attachShader(program, shaders[0]);
+				gl.shaderSource(shaders[1], document.getElementById(fragment_program).textContent);
+				gl.compileShader(shaders[1]);
+				gl.attachShader(program, shaders[1]);
+				gl.linkProgram(program);
+				if(!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+					gl.deleteProgram(program);
+					return null;
+				}
+				return program;
+			}
+	/*}}}*/
+
+			let init = true; // TODO: will need to replace with something for "loaded or currently loading this room"
+			                 // TODO: mapbe just change rooms into a hash and can check if key exists, can make dummy entry when starting to load one
+	/*{{{ display(timestamp)*/
+			function display(timestamp) {
+				delta_time = timestamp-last;
+				last = timestamp;
+				if(layer != target_layer) {
+					// go fastest direction to focus target layer
+					let new_layer = layer+(((target_layer-layer+3)%3 < 3/2) ? 1 : -1)*(delta_time/1000)/0.25;
+					if(((new_layer-target_layer)%3 > 0) != ((layer-target_layer)%3 > 0))
+						new_layer = target_layer;
+					layer = (new_layer+3)%3;
+				}
+				x += 2*(delta_time/1000)*(mx[1]-mx[0])*zoom;
+				y += 2*(delta_time/1000)*(my[1]-my[0])*zoom;
+
+				if(init && regions["loaded"] == regions["count"]) { init = false; for(let key in regions) {
+					if(key === "count" || key === "loaded") continue;
+					if(true) { // TODO
+						for(let j = 0; j < regions[key]["rooms"].length; j++) {
+							(function(name) {
+							fetch("./" + key + "/" + name)
+								.then(function(response) {
+									return response.text();
+								}).then(async function(data) {
+									rooms.push(new room(name, data.replaceAll("\r", ""), programs["room"]));
+								});
+							})(regions[key]["rooms"][j]);
+						}
+					}
+				} }
+
+				gl.canvas.width  = window.outerWidth;
+				gl.canvas.height = window.outerHeight;
+				gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+				gl.clearColor(0, 0, 0, 1);
+				gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+				gl.useProgram(programs["room"]["program"]);
+				let ratio = gl.canvas.height/gl.canvas.width;
+				gl.uniform1f(programs["room"]["uniforms"]["ratio"], ratio);
+				gl.uniformMatrix4fv(programs["room"]["uniforms"]["projection"], false, new Float32Array([
+					Math.min(1, ratio)/Math.tan(Math.PI/4), 0,                                        0,                    0,
+					0,                                      Math.min(1, 1/ratio)/Math.tan(Math.PI/4), 0,                    0,
+					0,                                      0,                                        -(1+0.5)/(1-0.5),     -zoom,
+					0,                                      0,                                        -(2*(1*0.5))/(1-0.5), 0
+				]));
+				function coords(i) {
+					return (settings["dev"])
+						? [rooms[i].dev_coords[0]+rooms[i].w/35, rooms[i].dev_coords[1]+rooms[i].h/35]
+						: rooms[i].map_coords
+					;
+				}
+				for(let i = 2; i >= 0; i--) {
+					for(let j = 0; j < rooms.length; j++) {
+						if(rooms[j].layer === i) {
+							// a standard room is 35 units tall -> 1 unit
+							gl.uniformMatrix4fv(programs["room"]["uniforms"]["model_view"], false, new Float32Array([
+								rooms[j].w/35,  0,              0, 0,
+								0,              rooms[j].h/35,  0, 0,
+								0,              0,              1, 0,
+								coords(j)[0]-x, coords(j)[1]+y, 0, 1
+							]));
+							rooms[j].draw(programs["room"]);
+						}
+					}
+				}
+				window.requestAnimationFrame(display);
+			}
+	/*}}}*/
+
+			function main() {
+				gl = document.querySelector("#canvas").getContext("webgl");
+				if(gl === null) return;
+				gl.enable(gl.BLEND);
+				gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.SRC_ALPHA, gl.ONE);
+				programs["room"] = room_program();
+				if(programs["room"] === null) return;
+
+	/*{{{ load regions*/
+				fetch("./regions")
+					.then(function(response) {
+						return response.text();
+					}).then(async function(data) {
+						let region_abbrs = data.replaceAll("\r", "").split("\n");
+						regions["count"] = region_abbrs.length;
+						for(let i = 0; i < region_abbrs.length; i++) {
+							//regions[region_abbrs[i]] = { "map_coords": [0, 0], "dev_coords": [0, 0], "rooms": [] }; // TODO
+							regions[region_abbrs[i]] = { "rooms": [] };
+							(function(region) {
+							fetch("./map_" + region)
+								.then(function(response) {
+									return response.text();
+								}).then(async function(data) {
+									data = data.replaceAll("\r", "");
+									let i = 0;
+									while(true) {
+										let j = data.indexOf("\n", i);
+										if(j === -1) break;
+										let line = data.substring(i, j);
+										// TODO: store connections
+										if(line.substring(0, 3) !== region + "_" && line.substring(0, 8) !== "GATE_" + region + "_") { i = j+1; continue; }
+										regions[region]["rooms"].push(line.replace(/:.*$/, ""));
+										line = line.replace(/^.*:\s*/, "").split(",");
+										// incremental average of room positions
+										// convert to tile units, then to our units
+										// TODO: don't need this, they don't share an origin - get extents though to see if it should be loaded
+										//regions[region].map_coords = [
+										//	((regions[region]["rooms"].length-1)*regions[region].map_coords[0]+parseFloat(line[0])*2/3/35)/regions[region]["rooms"].length,
+										//	((regions[region]["rooms"].length-1)*regions[region].map_coords[1]+parseFloat(line[1])*2/3/35)/regions[region]["rooms"].length
+										//];
+										//regions[region].dev_coords = [
+										//	((regions[region]["rooms"].length-1)*regions[region].dev_coords[0]+parseFloat(line[0])/35)/regions[region]["rooms"].length,
+										//	((regions[region]["rooms"].length-1)*regions[region].dev_coords[1]+parseFloat(line[1])/35)/regions[region]["rooms"].length
+										//];
+										i = j+1;
+									}
+									regions["loaded"]++;
+								});
+							})(region_abbrs[i]);
+						}
+					});
+	/*}}}*/
+
+				display(0);
+			}
+
+	/*{{{ room_program()*/
+			function room_program() {
+				let program = { "program": create_program(gl, "vertex-shader-2d", "fragment-shader-2d"), "uniforms": {}, "attributes": {} };
+				if(program["program"] === null) return null;
+				gl.useProgram(program["program"]);
+				program["attributes"]["position"] = gl.getAttribLocation(program["program"], "a_position");
+				program["uniforms"]["layer"] = gl.getUniformLocation(program["program"], "u_layer");
+				program["uniforms"]["ratio"] = gl.getUniformLocation(program["program"], "u_ratio");
+				program["uniforms"]["projection"] = gl.getUniformLocation(program["program"], "u_projection");
+				program["uniforms"]["model_view"] = gl.getUniformLocation(program["program"], "u_model_view");
+				program["uniforms"]["color"] = gl.getUniformLocation(program["program"], "u_color");
+				return program;
+			}
+	/*}}}*/
+
+	/*{{{ room(name, data, program)*/
+			function room(name, data, program) {
+				this.name = name;
+				this.region = name.replace(/^GATE_/, "").substring(0, 2);
+				gl.useProgram(program["program"]);
+				let air_data   = [];
+				let water_data = [];
+				let line_data  = [];
+
+		/*{{{ parse data*/
+				let i = 0;
+				let j = data.indexOf("\n");
+				let line = data.substr(i, j-i).split(",");
+				// convert to tile units, then to our units
+				let region_coords = region_map_coords[this.region];
+				this.map_coords = [(region_coords[0]+parseFloat(line[0])*2/3)/35, (region_coords[1]+parseFloat(line[1])*2/3)/35];
+				    region_coords = region_dev_coords[this.region];
+				this.dev_coords = [(region_coords[0]+parseFloat(line[2])    )/35, (region_coords[1]+parseFloat(line[3])    )/35];
+				this.layer = parseInt(line[4]);
+				i = j+1;
+				j = data.indexOf("\n", i);
+				line = data.substr(i, j-i).split("*");
+				this.w = parseInt(line[0]);
+				this.h = parseInt(line[1]);
+				i = j+1;
+				while(true) {
+					j = data.indexOf("\n", i);
+					if(j === -1) break;
+					line = data.substr(i, j-i);
+					let k = 1;
+					switch(line.charAt(0)) {
+						case " ":
+							while(true) {
+								let l = line.indexOf(" ", k);
+								if(l === -1) break;
+								let points = line.substr(k, l-k).split(",");
+								air_data.push(parseFloat(points[0]/this.w), parseFloat(points[1]/this.h));
+								air_data.push(parseFloat(points[2]/this.w), parseFloat(points[3]/this.h));
+								air_data.push(parseFloat(points[4]/this.w), parseFloat(points[5]/this.h));
+								k = l+1;
+							}
+							break;
+						case "W":
+							while(true) {
+								let l = line.indexOf("W", k);
+								if(l === -1) break;
+								let points = line.substr(k, l-k).split(",");
+								water_data.push(parseFloat(points[0]/this.w), parseFloat(points[1]/this.h));
+								water_data.push(parseFloat(points[2]/this.w), parseFloat(points[3]/this.h));
+								water_data.push(parseFloat(points[4]/this.w), parseFloat(points[5]/this.h));
+								k = l+1;
+							}
+							break;
+						case "|":
+							while(true) {
+								let l = line.indexOf("|", k);
+								if(l === -1) break;
+								let points = line.substr(k, l-k).split(",");
+								line_data.push(parseFloat(points[0]/this.w), parseFloat(points[1]/this.h));
+								line_data.push(parseFloat(points[2]/this.w), parseFloat(points[3]/this.h));
+								k = l+1;
+							}
+							break;
+					}
+					i = j+1;
+				}
+		/*}}}*/
+
+				this.air_vertex_positions = gl.createBuffer();
+				gl.bindBuffer(gl.ARRAY_BUFFER, this.air_vertex_positions);
+				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(air_data), gl.STATIC_DRAW);
+				this.num_air = air_data.length/2;
+				delete(air_data);
+				this.num_water = water_data.length/2;
+				if(this.num_water != 0) {
+					this.water_vertex_positions = gl.createBuffer();
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.water_vertex_positions);
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(water_data), gl.STATIC_DRAW);
+					delete(water_data);
+				}
+				this.line_vertex_positions = gl.createBuffer();
+				gl.bindBuffer(gl.ARRAY_BUFFER, this.line_vertex_positions);
+				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(line_data), gl.STATIC_DRAW);
+				this.num_lines = line_data.length/2;
+				delete(line_data);
+
+		/*{{{ draw()*/
+				this.draw = function(program) {
+					gl.useProgram(program["program"]);
+					gl.uniform1f(program["uniforms"]["layer"], (settings["dev"]) ? 0 : this.layer);
+
+					let size;
+					let stride;
+					let offset;
+					let layer_opacity = (settings["dev"]) ? 1 : Math.round(Math.max(0, Math.abs(3/2-((layer-this.layer)+3)%3)-(3/2-1))*100)/100;
+					let color;
+					if(layer_opacity !== 0) {
+						gl.bindBuffer(gl.ARRAY_BUFFER, this.air_vertex_positions);
+						// Tell the attribute how to get data out of air_vertex_positions (ARRAY_BUFFER)
+						size = 2;          // 2 components per iteration
+						stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+						offset = 0;        // start at the beginning of the buffer
+						gl.vertexAttribPointer(program["attributes"]["position"], size, gl.FLOAT, false, stride, offset);
+						gl.enableVertexAttribArray(program["attributes"]["position"]);
+						if(settings["color"]) {
+							color = region_color(this.region);
+							gl.uniform4f(program["uniforms"]["color"], color[0], color[1], color[2], layer_opacity);
+						}
+						else
+							gl.uniform4f(program["uniforms"]["color"], 0.15, 0.15, 0.15, layer_opacity);
+						gl.drawArrays(gl.TRIANGLES, 0, this.num_air);
+
+						if(this.num_water != 0) {
+							gl.bindBuffer(gl.ARRAY_BUFFER, this.water_vertex_positions);
+							// Tell the attribute how to get data out of water_vertex_positions (ARRAY_BUFFER)
+							size = 2;          // 2 components per iteration
+							stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+							offset = 0;        // start at the beginning of the buffer
+							gl.vertexAttribPointer(program["attributes"]["position"], size, gl.FLOAT, false, stride, offset);
+							gl.enableVertexAttribArray(program["attributes"]["position"]);
+							color = region_water_color(this.region);
+							gl.uniform4f(program["uniforms"]["color"], color[0], color[1], color[2], layer_opacity*color[3]);
+							gl.drawArrays(gl.TRIANGLES, 0, this.num_water);
+						}
+					}
+
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.line_vertex_positions);
+					// Tell the attribute how to get data out of line_vertex_positions (ARRAY_BUFFER)
+					size = 2;          // 2 components per iteration
+					stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+					offset = 0;        // start at the beginning of the buffer
+					gl.vertexAttribPointer(program["attributes"]["position"], size, gl.FLOAT, false, stride, offset);
+					gl.enableVertexAttribArray(program["attributes"]["position"]);
+					if(settings["color"])
+						color = [0, 0, 0];
+					else
+						color = [1, 1, 1];
+					gl.uniform4f(program["uniforms"]["color"],
+						layer_opacity*color[0]+(1-layer_opacity)*0.35,
+						layer_opacity*color[1]+(1-layer_opacity)*0.35,
+						layer_opacity*color[2]+(1-layer_opacity)*0.35,
+					1);
+					gl.lineWidth(1/(0.075*(zoom+2.5)));
+					gl.drawArrays(gl.LINES, 0, this.num_lines);
+				}
+		/*}}}*/
+
+				this.destroy = function(program) {
+					gl.useProgram(program["program"]);
+					gl.deleteBuffer(air_vertex_positions);
+					gl.deleteBuffer(water_vertex_positions);
+					gl.deleteBuffer(line_vertex_positions);
+				}
+			}
+	/*}}}*/
+
+			document.addEventListener("DOMContentLoaded", function(event) {
+				main();
+			});
+		</script>
+<!--}}}-->
+
+<!--{{{ vertex-shader-2d-->
+		<script id="vertex-shader-2d" type="x-shader/x-vertex">
+			attribute vec2 a_position;
+			uniform float u_layer;
+
+			uniform float u_ratio;
+			uniform mat4 u_projection;
+			uniform mat4 u_model_view;
+
+			void main() {
+				// 0..1 -> -1..1
+				vec2 clip_space = (a_position*2.0)-1.0;
+				vec4 screen_space = u_projection * u_model_view * vec4(clip_space * vec2(1, -1), -0.75-0.25*(u_layer/2.0), 1);
+
+				screen_space[0] *= 1.0+(1.0-cos(min(3.14/2.0, abs(1.0/max(1.0, u_ratio)*screen_space[0]/screen_space[3, 3])/1.75)));
+				screen_space[1] *= 1.0+(1.0-cos(min(3.14/2.0, abs(    min(1.0, u_ratio)*screen_space[1]/screen_space[3, 3])/1.75)));
+
+				gl_Position = screen_space;
+			}
+		</script>
+<!--}}}-->
+
+<!--{{{ fragment-shader-2d-->
+		<script id="fragment-shader-2d" type="x-shader/x-fragment">
+			precision mediump float;
+
+			uniform vec4 u_color;
+
+			void main() {
+				gl_FragColor = u_color;
+			}
+		</script>
+<!--}}}-->
+	</head>
+
+	<body>
+		<span id="settings" style="background-color: black">
+			<br />
+			<br />
+			<h1>SETTINGS</h1>
+			<form>
+				<span style="display: inline-block; width: 50%; position: relative; left: 50%;">
+					<span style="content: ''; display: table; width: 100%;">
+						<label class="choice" style="float: left; margin-right: 1em;">
+							<input type="radio" id="monk" name="difficulty" value="monk" checked="checked">
+							<span><img src="./MultiplayerPortrait11.png" alt="Difficulty: Monk" draggable="false"></span>
+						</label>
+						<label class="choice" style="float: left; margin-right: 1em;">
+							<input type="radio" id="survivor" name="difficulty" value="survivor">
+							<span><img src="./MultiplayerPortrait01.png" alt="Difficulty: Survivor" draggable="false"></span>
+						</label>
+						<label class="choice" style="float: left">
+							<input type="radio" id="hunter" name="difficulty" value="hunter">
+							<span><img src="./MultiplayerPortrait21.png" alt="Difficulty: Hunter" draggable="false"></span>
+						</label>
+					</span>
+					<br />
+
+					<table>
+						<tr>
+							<td>
+								<span style="margin-right: 0.5em">Color:</span>
+							</td>
+							<td>
+								<label class="check choice">
+									<input type="checkbox" id="color" name="color"><span></span><br>
+								</label>
+							</td>
+						</tr>
+						<tr>
+							<td>
+								<span style="margin-right: 0.5em">Scrolling moves:</span>
+							</td>
+							<td>
+								<label class="check choice">
+									<input type="checkbox" id="scroll_move" name="scroll_move" checked="checked"><span></span><br>
+								</label>
+							</td>
+						</tr>
+					</table>
+					<br />
+
+					<span style="display: inline-block; text-align: center;">
+						<span style="color: #4B4653; margin-right: 0.5em;">Map type:</span>
+						<label class="text choice">
+							<input type="radio" id="in_game" name="map" value="in_game" checked="checked">
+							<span><span>IN-GAME</span></span>
+						</label>
+						<label class="text choice">
+							<input type="radio" id="dev" name="map" value="dev">
+							<span><span>DEV</span></span>
+						</label>
+					</span><br />
+					(Space to change layers)<br />
+					<br />
+
+					<label class="text choice" id="play" onclick="play()">
+						<input type="radio" name="play" value="play">
+						<span><span>PLAY!</span></span>
+					</label>
+				</span>
+			</form>
+		</span>
+
+		<span id="show_settings" onclick="show_settings()">&#9881;</span>
+		<canvas id="canvas" style="z-index: -1"></canvas>
+	</body>
+</html>
