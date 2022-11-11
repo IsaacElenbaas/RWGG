@@ -19,7 +19,18 @@ function parse_room_line(i, line, room, room_out) {
 			}
 			break;
 		//case 2:  break; // light angle
-		//case 3:  break; // cameras
+		case 3: // screens
+			let min = line.split("|")[0].split(",");
+			min[0] = parseInt(min[0]); min[1] = parseInt(min[1]);
+			for(let screen in line.split("|")) {
+				let coord = screen.split(",");
+				coord[0] = parseInt(coord[0]); coord[1] = parseInt(coord[1]);
+				if(coord[0]+coord[1] < min[0]+min[1])
+					min = coord;
+			}
+			room_out.write(  min[0]     + "," );
+			room_out.write((-min[1]-30) + "\n");
+			break;
 		//case 4:  break; // solid or passable border
 		//case 5:  break; // spears and rocks
 		//case 9:  break; // AI pathfinding costs
