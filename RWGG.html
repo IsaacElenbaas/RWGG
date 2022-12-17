@@ -200,6 +200,7 @@
 			let target_zoom = zoom;
 			let layer = 0;
 			let target_layer = layer;
+			let error_line_progress;
 			let guessed = false;
 			let guess_coords = null;
 			let showing_guess = false;
@@ -239,16 +240,27 @@
 						break;
 					case 82: // r
 						if(loading) return;
-						if(showing_guess) break;
+						if(showing_guess) {
+							target_x = x;
+							target_y = y;
+							target_zoom = zoom;
+							showing_guess = false;
+						}
 						if(!guessed) {
 							let ratio = window.innerHeight/window.innerWidth;
 							guess_coords = [x, -y];
-							let sol_coords = coords(solution.room);
+							let sol_coords = room_coords(solution.room).slice();
+							sol_coords[0] += solution.room.o_x/35;
+							sol_coords[1] += solution.room.o_y/35;
+							sol_coords[0] += solution.hint_x/step/35;
+							sol_coords[1] += solution.hint_y/step/35;
+							let dx = sol_coords[0]-guess_coords[0];
+							let dy = sol_coords[1]-guess_coords[1];
 							target_x =  (guess_coords[0]+sol_coords[0])/2;
 							target_y = -(guess_coords[1]+sol_coords[1])/2;
-							target_zoom = 2/3*Math.max(Math.abs(guess_coords[0]-sol_coords[0]), Math.abs(guess_coords[1]-sol_coords[1]))+5;
+							target_zoom = Math.max(zoom, 2/3*Math.max(Math.abs(guess_coords[0]-sol_coords[0]), Math.abs(guess_coords[1]-sol_coords[1]))+5);
 							target_layer = solution.room.layer;
-							error_line = new gl_error_line(programs["room"]);
+							error_line_progress = 0;
 							guessed = true;
 							showing_guess = true;
 						}
@@ -320,7 +332,7 @@
 				"SB": [        -1370,         -2250],
 				"SS": [         6473,          5598]
 			}
-			function coords(room) {
+			function room_coords(room) {
 				return (settings["dev"])
 					? [room.dev_coords[0]+room.w/35, room.dev_coords[1]+room.h/35]
 					: room.map_coords
@@ -473,6 +485,8 @@
 
 					let index = Math.floor(random_perc()*(options.length-1));
 					let hint_image_data = new ImageData(settings["difficulty"]*step, Math.min(this.height, options[index][1]+settings["difficulty"]*step)-options[index][1]);
+					solution.hint_x = options[index][0]+hint_image_data.width /2;
+					solution.hint_y = options[index][1]+hint_image_data.height/2;
 					for(let i = 0; i < hint_image_data.width; i++) {
 						for(let j = 0; j < hint_image_data.height; j++) {
 							hint_image_data.data[(j*(hint_image_data.width)+i)*4+0] = image_data.original_data[((j+options[index][1])*(image_data.width)+(i+options[index][0]))*4+0];
@@ -551,6 +565,9 @@
 				if(programs["solution"] === null) return;
 				programs["room"] = room_program();
 				if(programs["room"] === null) return;
+				programs["error_line"] = error_line_program();
+				if(programs["error_line"] === null) return;
+				error_line = new gl_error_line(programs["error_line"]);
 
 		/*{{{ load rooms*/
 				fetch("./regions").then(function(response) { return response.text(); }).then(async function(data) {
@@ -636,10 +653,12 @@
 					layer = (new_layer+3)%3;
 				}
 				if(!showing_guess) {
+					error_line_progress = 1;
 					x += 1.5*(delta_time/1000)*(mx[1]-mx[0])*zoom;
 					y += 1.5*(delta_time/1000)*(my[1]-my[0])*zoom;
 				}
 				else {
+					error_line_progress = Math.min(1, error_line_progress+(delta_time/1000)/1.5);
 					if(x !== target_x) {
 						let new_x = x+((target_x-x > 0) ? 1 : -1)*(Math.abs(target_x-x)+1)*(delta_time/1000)/1;
 						if((target_x-new_x > 0) !== (target_x-x > 0))
@@ -686,10 +705,10 @@
 					if(guessed && solution !== null && solution.room.layer === i) {
 						gl.useProgram(programs["solution"]["program"]);
 						gl.uniformMatrix4fv(programs["solution"]["uniforms"]["model_view"], false, new Float32Array([
-							solution.room.w/35,         0,                          0, 0,
-							0,                          solution.room.h/35,         0, 0,
-							0,                          0,                          1, 0,
-							coords(solution.room)[0]-x, coords(solution.room)[1]+y, 0, 1
+							solution.room.w/35,              0,                               0, 0,
+							0,                               solution.room.h/35,              0, 0,
+							0,                               0,                               1, 0,
+							room_coords(solution.room)[0]-x, room_coords(solution.room)[1]+y, 0, 1
 						]));
 						solution.draw();
 						gl.useProgram(programs["room"]["program"]);
@@ -698,21 +717,29 @@
 						if(rooms[j].layer === i) {
 							// a standard room is 35 units tall -> 1 unit
 							gl.uniformMatrix4fv(programs["room"]["uniforms"]["model_view"], false, new Float32Array([
-								rooms[j].w/35,         0,                     0, 0,
-								0,                     rooms[j].h/35,         0, 0,
-								0,                     0,                     1, 0,
-								coords(rooms[j])[0]-x, coords(rooms[j])[1]+y, 0, 1
+								rooms[j].w/35,              0,                          0, 0,
+								0,                          rooms[j].h/35,              0, 0,
+								0,                          0,                          1, 0,
+								room_coords(rooms[j])[0]-x, room_coords(rooms[j])[1]+y, 0, 1
 							]));
 							rooms[j].draw();
 						}
 					}
 				}
 				if(guessed) {
-					gl.uniformMatrix4fv(programs["room"]["uniforms"]["model_view"], false, new Float32Array([
-						1,                 0,                 0, 0,
-						0,                 1,                 0, 0,
-						0,                 0,                 1, 0,
-						guess_coords[0]-x, guess_coords[1]+y, 0, 1
+					gl.useProgram(programs["error_line"]["program"]);
+					gl.uniform1f(programs["error_line"]["uniforms"]["progress"], error_line_progress);
+					// this is to match clip_space conversions in other vertex shaders, can't go between rooms with it active so not for this
+					let adjust_x = -solution.room.w/35+2*solution.room.o_x/35;
+					let adjust_y = -solution.room.h/35-2*solution.room.o_y/35;
+					// point to the center of the hint
+					adjust_x += 2*solution.hint_x/step/35;
+					adjust_y += 2*solution.hint_y/step/35;
+					gl.uniformMatrix4fv(programs["error_line"]["uniforms"]["model_view"], false, new Float32Array([
+						room_coords(solution.room)[0]+adjust_x-guess_coords[0], 0,                  0, 0,
+						0,                 -room_coords(solution.room)[1]+adjust_y+guess_coords[1], 0, 0,
+						0,                 0,                                                       1, 0,
+						guess_coords[0]-x, guess_coords[1]+y,                                       0, 1
 					]));
 					error_line.draw();
 				}
@@ -722,7 +749,7 @@
 
 	/*{{{ solution_program()*/
 			function solution_program() {
-				let program = { "program": create_program(gl, "solution-vertex-shader", "solution-fragment-shader"), "uniforms": {}, "attributes": {} };
+				let program = { "program": create_program(gl, "solution_vertex_shader", "solution_fragment_shader"), "uniforms": {}, "attributes": {} };
 				if(program["program"] === null) return null;
 				gl.useProgram(program["program"]);
 				program["attributes"]["position"] = gl.getAttribLocation(program["program"], "a_position");
@@ -739,7 +766,7 @@
 
 	/*{{{ room_program()*/
 			function room_program() {
-				let program = { "program": create_program(gl, "room-vertex-shader", "room-fragment-shader"), "uniforms": {}, "attributes": {} };
+				let program = { "program": create_program(gl, "room_vertex_shader", "room_fragment_shader"), "uniforms": {}, "attributes": {} };
 				if(program["program"] === null) return null;
 				gl.useProgram(program["program"]);
 				program["attributes"]["position"] = gl.getAttribLocation(program["program"], "a_position");
@@ -749,6 +776,23 @@
 				program["uniforms"]["projection"] = gl.getUniformLocation(program["program"], "u_projection");
 				program["uniforms"]["model_view"] = gl.getUniformLocation(program["program"], "u_model_view");
 				program["uniforms"]["color"] = gl.getUniformLocation(program["program"], "u_color");
+				return program;
+			}
+	/*}}}*/
+
+	/*{{{ error_line_program()*/
+			function error_line_program() {
+				let program = { "program": create_program(gl, "error_line_vertex_shader", "error_line_fragment_shader"), "uniforms": {}, "attributes": {} };
+				if(program["program"] === null) return null;
+				gl.useProgram(program["program"]);
+				program["attributes"]["position"] = gl.getAttribLocation(program["program"], "a_position");
+				program["uniforms"]["layer"] = gl.getUniformLocation(program["program"], "u_layer");
+				program["uniforms"]["stretch"] = gl.getUniformLocation(program["program"], "u_stretch");
+				program["uniforms"]["ratio"] = gl.getUniformLocation(program["program"], "u_ratio");
+				program["uniforms"]["projection"] = gl.getUniformLocation(program["program"], "u_projection");
+				program["uniforms"]["model_view"] = gl.getUniformLocation(program["program"], "u_model_view");
+				program["uniforms"]["color"] = gl.getUniformLocation(program["program"], "u_color");
+				program["uniforms"]["progress"] = gl.getUniformLocation(program["program"], "u_progress");
 				return program;
 			}
 	/*}}}*/
@@ -825,13 +869,11 @@
 
 				this.error_vertex_positions = gl.createBuffer();
 				gl.bindBuffer(gl.ARRAY_BUFFER, this.error_vertex_positions);
-				// why this needs to be divided by 2, why it doesn't work when set to 0, 0, 1, 1 and done in the model matrix, and why the line doesn't point at a corner of the room I have no clue
-				// temporary anyway
-				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, (coords(solution.room)[0]-guess_coords[0])/2, -(coords(solution.room)[1]-guess_coords[1])/2]), gl.STATIC_DRAW);
+				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 1]), gl.STATIC_DRAW);
 
 		/*{{{ draw()*/
 				this.draw = function() {
-					gl.uniform1f(program["uniforms"]["layer"], solution.room.layer);
+					gl.uniform1f(program["uniforms"]["layer"], (settings["dev"]) ? 0 : solution.room.layer);
 					// Tell the attribute how to get data out of error_vertex_positions (ARRAY_BUFFER)
 					let size = 2;          // 2 components per iteration
 					let stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
@@ -1008,8 +1050,45 @@
 	/*}}}*/
 		</script>
 
-<!--{{{ solution-vertex-shader-->
-		<script id="solution-vertex-shader" type="x-shader/x-vertex">
+<!--{{{ room_vertex_shader-->
+		<script id="room_vertex_shader" type="x-shader/x-vertex">
+			attribute vec2 a_position;
+			uniform float u_layer;
+			uniform bool u_stretch;
+
+			uniform float u_ratio;
+			uniform mat4 u_projection;
+			uniform mat4 u_model_view;
+
+			void main() {
+				// 0..1 -> -1..1
+				vec2 clip_space = (a_position*2.0)-1.0;
+				vec4 screen_space = u_projection * u_model_view * vec4(clip_space*vec2(1, -1), -0.75-0.25*(u_layer/2.0), 1);
+
+				if(u_stretch) {
+					screen_space[0] *= 1.0+(1.0-cos(min(3.14/2.0, abs(1.0/max(1.0, u_ratio)*screen_space[0]/screen_space[3, 3])/1.75)));
+					screen_space[1] *= 1.0+(1.0-cos(min(3.14/2.0, abs(    min(1.0, u_ratio)*screen_space[1]/screen_space[3, 3])/1.75)));
+				}
+
+				gl_Position = screen_space;
+			}
+		</script>
+<!--}}}-->
+
+<!--{{{ room_fragment_shader-->
+		<script id="room_fragment_shader" type="x-shader/x-fragment">
+			precision mediump float;
+
+			uniform vec4 u_color;
+
+			void main() {
+				gl_FragColor = u_color;
+			}
+		</script>
+<!--}}}-->
+
+<!--{{{ solution_vertex_shader-->
+		<script id="solution_vertex_shader" type="x-shader/x-vertex">
 			attribute vec2 a_position;
 			attribute vec2 a_texture_coords;
 			uniform float u_layer;
@@ -1024,7 +1103,7 @@
 			void main() {
 				// 0..1 -> -1..1
 				vec2 clip_space = (a_position*2.0)-1.0;
-				vec4 screen_space = u_projection * u_model_view * vec4(clip_space * vec2(1, -1), -0.75-0.25*(u_layer/2.0), 1);
+				vec4 screen_space = u_projection * u_model_view * vec4(clip_space*vec2(1, -1), -0.75-0.25*(u_layer/2.0), 1);
 
 				if(u_stretch) {
 					screen_space[0] *= 1.0+(1.0-cos(min(3.14/2.0, abs(1.0/max(1.0, u_ratio)*screen_space[0]/screen_space[3, 3])/1.75)));
@@ -1037,8 +1116,8 @@
 		</script>
 <!--}}}-->
 
-<!--{{{ solution-fragment-shader-->
-		<script id="solution-fragment-shader" type="x-shader/x-fragment">
+<!--{{{ solution_fragment_shader-->
+		<script id="solution_fragment_shader" type="x-shader/x-fragment">
 			precision mediump float;
 
 			uniform sampler2D u_sampler;
@@ -1051,8 +1130,8 @@
 		</script>
 <!--}}}-->
 
-<!--{{{ room-vertex-shader-->
-		<script id="room-vertex-shader" type="x-shader/x-vertex">
+<!--{{{ error_line_vertex_shader-->
+		<script id="error_line_vertex_shader" type="x-shader/x-vertex">
 			attribute vec2 a_position;
 			uniform float u_layer;
 			uniform bool u_stretch;
@@ -1061,10 +1140,12 @@
 			uniform mat4 u_projection;
 			uniform mat4 u_model_view;
 
+			varying vec2 f_position;
+
 			void main() {
-				// 0..1 -> -1..1
-				vec2 clip_space = (a_position*2.0)-1.0;
-				vec4 screen_space = u_projection * u_model_view * vec4(clip_space * vec2(1, -1), -0.75-0.25*(u_layer/2.0), 1);
+				f_position = a_position;
+
+				vec4 screen_space = u_projection * u_model_view * vec4(a_position*vec2(1, -1), -0.75-0.25*(u_layer/2.0), 1);
 
 				if(u_stretch) {
 					screen_space[0] *= 1.0+(1.0-cos(min(3.14/2.0, abs(1.0/max(1.0, u_ratio)*screen_space[0]/screen_space[3, 3])/1.75)));
@@ -1076,13 +1157,20 @@
 		</script>
 <!--}}}-->
 
-<!--{{{ room-fragment-shader-->
-		<script id="room-fragment-shader" type="x-shader/x-fragment">
+<!--{{{ error_line_fragment_shader-->
+		<script id="error_line_fragment_shader" type="x-shader/x-fragment">
 			precision mediump float;
 
 			uniform vec4 u_color;
+			uniform float u_progress;
+
+			varying vec2 f_position;
 
 			void main() {
+				if(f_position.x > 0.5-cos(3.1416*u_progress)/2.0) {
+					discard;
+					return;
+				}
 				gl_FragColor = u_color;
 			}
 		</script>
@@ -1091,7 +1179,7 @@
 
 	</head>
 	<body>
-		<span id="loading_hint" class="splash" style="display:none; opacity:0.75"><h1 style="opacity:1">Loading hint. . .</h1></span>
+		<span id="loading_hint" class="splash" style="display:none; opacity:0.75"><h1 style="opacity:1">Generating hint. . .</h1></span>
 		<span id="wait_lobby"   class="splash"><h1>Connecting to lobby. . .</h1></span>
 		<span id="js_splash"    class="splash"><h1>Please enable JavaScript</h1></span>
 
@@ -1190,7 +1278,7 @@
 
 					<br />
 
-					<label class="text choice" id="play" onclick="play()">
+					<label class="text choice" id="play" onclick="loading = true; document.getElementById('loading_hint').style.display = 'unset'; load_progress.callback(function() { play(); });">
 						<input type="radio" name="play" value="play" onclick="event.stopPropagation()">
 						<span><span>PLAY!</span></span>
 					</label>
