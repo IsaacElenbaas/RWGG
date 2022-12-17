@@ -19,12 +19,21 @@
 			table {
 				border: none;
 			}
-			#settings, #canvas {
+			.splash, #settings, #canvas {
 				position: absolute;
 				left: 0;
 				top: 0;
 				width: 100vw;
 				height: 100vh;
+			}
+			.splash {
+				background-color: black;
+			}
+			.splash>* {
+				position: absolute;
+				left: 50%;
+				top: 50%;
+				transform: translateX(-50%) translateY(-50%);
 			}
 			#show_settings {
 				position: absolute;
@@ -47,6 +56,8 @@
 				border: 0.3em solid black;
 				border-radius: 0.6em;
 			}
+
+	/*{{{ settings*/
 			#settings>h1 {
 				text-align: center;
 				transform: scaleX(2) scaleY(2.5);
@@ -114,35 +125,43 @@
 				padding: calc(0.3em - 0.15em) 0px calc(0.3em - 0.15em) 0px;
 				width: calc(100% - 2 * (0.15em + 0.15em));
 			}
+	/*}}}*/
+
 		</style>
 <!--}}}-->
 
 <!--{{{ script-->
 		<script type="application/javascript">
-			const step = 20; // pixels per tile
-			let settings = { "difficulty": 5, "dev": false, "color": false, "stretch": true, "scroll_move": false };
-			let image = {};
-			let x = 7;
-			let y = 6.15;
-			let zoom = 2;
-			let layer = 0;
-			let target_x = x;
-			let target_y = y;
-			let target_zoom = zoom;
-			let target_layer = layer;
-			let guessed = false;
-			let showing_guess = false;
-			let guess_coords = null;
-
 			let test_hint_selection = false;
-			if(test_hint_selection) {
-				image.image = new Image();
-				image.image.onload = load_round;
-				image.image.src = "./Merged Screenshots/CC/CC_A02.png";
+			let settings = { "difficulty": 5, "dev": false, "color": false, "stretch": true, "scroll_move": false };
+
+			const step = 20; // pixels per tile
+			const lobby = (new URLSearchParams(window.location.search)).get("lobby");
+			let image = {};
+
+	/*{{{ random(), random_perc()*/
+			function simplerng(seed) {
+				return function() {
+					if(seed === null) return Math.floor(Math.random()*Math.fround(Number.MAX_SAFE_INTEGER));
+					else {
+						seed ^= seed << 13;
+						seed ^= seed >> 17;
+						seed ^= seed << 5;
+						seed = Math.fround(Math.abs(seed));
+						return seed;
+					}
+				}
 			}
+			let random;
+			function random_perc() { return random()/Math.fround(Number.MAX_SAFE_INTEGER); }
+			if(lobby === null) random = simplerng(lobby);
+	/*}}}*/
 
 	/*{{{ onclicks*/
+			let loading = false;
 			function play() {
+				loading = true;
+				document.getElementById("loading_hint").style.display = "unset";
 				if(document.getElementById("monk").checked)
 					settings["difficulty"] = 15;
 				if(document.getElementById("survivor").checked)
@@ -150,9 +169,8 @@
 				if(document.getElementById("hunter").checked)
 					settings["difficulty"] = 5;
 				image.image = new Image();
-				let index = Math.floor(Math.random()*(rooms.length-1));
-				image.image.onload = load_round.bind(image.image, rooms[index]);
-				image.image.src = "./Merged Screenshots/" + rooms[index].region + "/" + rooms[index].name + ".png";
+				image.image.onload = load_round.bind(image.image, rooms[round]);
+				image.image.src = "./Merged Screenshots/" + rooms[round].region + "/" + rooms[round].name + ".png";
 				settings["dev"] = document.getElementById("dev").checked;
 				settings["color"] = document.getElementById("color").checked;
 				settings["stretch"] = document.getElementById("stretch").checked;
@@ -172,10 +190,22 @@
 	/*}}}*/
 
 	/*{{{ input*/
+			let x = 7;
 			let mx = [0, 0];
+			let target_x = x;
+			let y = 6.15;
 			let my = [0, 0];
+			let target_y = y;
+			let zoom = 2;
+			let target_zoom = zoom;
+			let layer = 0;
+			let target_layer = layer;
+			let guessed = false;
+			let guess_coords = null;
+			let showing_guess = false;
 
 			document.onkeydown = function(e) {
+				if(loading) return;
 				switch(e.keyCode) {
 					case 65: // a
 					case 37: // left arrow
@@ -198,16 +228,17 @@
 			document.onkeyup = function(e) {
 				switch(e.keyCode) {
 					case 32: // space
+						if(loading) return;
 						if(showing_guess) break;
 						target_layer = (target_layer+1)%3;
 						if(test_hint_selection) {
 							image.image = new Image();
-							let index = Math.floor(Math.random()*(rooms.length-1));
-							image.image.onload = load_round.bind(image.image, rooms[index]);
-							image.image.src = "./Merged Screenshots/" + rooms[index].region + "/" + rooms[index].name + ".png";
+							image.image.onload = load_round.bind(image.image, rooms[round]);
+							image.image.src = "./Merged Screenshots/" + rooms[round].region + "/" + rooms[round].name + ".png";
 						}
 						break;
 					case 82: // r
+						if(loading) return;
 						if(showing_guess) break;
 						if(!guessed) {
 							let ratio = window.innerHeight/window.innerWidth;
@@ -242,6 +273,7 @@
 				}
 			}
 			addEventListener("wheel", function(e) {
+				if(loading) return;
 				if(!showing_guess) {
 					// should keep point under cursor at same place on screen but doesn't work
 					// feels decent so not bothering at the moment
@@ -258,7 +290,8 @@
 			});
 	/*}}}*/
 
-	/*{{{ region_map/dev_coords(region)*/
+	/*{{{ region "fact" functions*/
+		/*{{{ region_map/dev_coords(region)*/
 			region_map_coords = {
 				"CC": [ 1575,    1345],
 				"DS": [  550,    -450], // mildly arbitrary after GW finalized
@@ -293,9 +326,9 @@
 					: room.map_coords
 				;
 			}
-	/*}}}*/
+		/*}}}*/
 
-	/*{{{ region_color(region)*/
+		/*{{{ region_color(region)*/
 			function region_color(region) {
 				switch(region) {
 					case "CC": return [1.00, 0.50, 0.00];
@@ -312,9 +345,9 @@
 					case "SS": return [0.75, 0.75, 0.75];
 				}
 			}
-	/*}}}*/
+		/*}}}*/
 
-	/*{{{ region_water_color(region)*/
+		/*{{{ region_water_color(region)*/
 			function region_water_color(region) {
 				switch(region) {
 					case "GW": return [0.75, 0.45, 0.25, 1.00];
@@ -322,10 +355,24 @@
 					default:   return [0.05, 0.10, 0.90, 0.75];
 				}
 			}
+		/*}}}*/
 	/*}}}*/
 
 	/*{{{ load_round(room)*/
+			let round = 0;
+			let solution = null;
+
 			function load_round(room) {
+				round++;
+				if(round === rooms.length) {
+					round = 0;
+					for(let i = 0; i < rooms.length; i++) {
+						let j = Math.floor(random_perc()*(rooms.length-1));
+						let temp = rooms[j];
+						rooms[j] = rooms[i];
+						rooms[i] = temp;
+					}
+				}
 				if(test_hint_selection && document.lastElementChild.tagName.toLowerCase === "img")
 					document.removeChild(document.lastElementChild);
 
@@ -338,15 +385,15 @@
 				let image_data = ctx.getImageData(0, 0, this.width, this.height);
 				image_data.original_data = image_data.data.slice();
 
-				let round = 4;
+				let round_to = 4;
 				let min_color = 256/8;
-				round = 256/round;
+				round_to = 256/round_to;
 				for(let i = 0; i < this.width; i++) {
 					for(let j = 0; j < this.height; j++) {
 						let pixel = image_data.data.slice((j*(image_data.width)+i)*4, (j*(image_data.width)+i)*4+4);
-						image_data.data[(j*(image_data.width)+i)*4+0] = Math.max(min_color, Math.round(pixel[0]/round)*round);
-						image_data.data[(j*(image_data.width)+i)*4+1] = Math.max(min_color, Math.round(pixel[1]/round)*round);
-						image_data.data[(j*(image_data.width)+i)*4+2] = Math.max(min_color, Math.round(pixel[2]/round)*round);
+						image_data.data[(j*(image_data.width)+i)*4+0] = Math.max(min_color, Math.round(pixel[0]/round_to)*round_to);
+						image_data.data[(j*(image_data.width)+i)*4+1] = Math.max(min_color, Math.round(pixel[1]/round_to)*round_to);
+						image_data.data[(j*(image_data.width)+i)*4+2] = Math.max(min_color, Math.round(pixel[2]/round_to)*round_to);
 					}
 				}
 		/*}}}*/
@@ -406,6 +453,8 @@
 					this.src = canvas.toDataURL();
 					document.body.appendChild(this);
 					document.body.lastElementChild.style = "position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; z-index: 1;";
+					loading = false;
+					document.getElementById("loading_hint").style.display = "none";
 				}
 				else if(options.length > 0) {
 
@@ -422,7 +471,7 @@
 					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 					solution = new gl_solution(room, image_data, programs["solution"]);
 
-					let index = Math.floor(Math.random()*(options.length-1));
+					let index = Math.floor(random_perc()*(options.length-1));
 					let hint_image_data = new ImageData(settings["difficulty"]*step, Math.min(this.height, options[index][1]+settings["difficulty"]*step)-options[index][1]);
 					for(let i = 0; i < hint_image_data.width; i++) {
 						for(let j = 0; j < hint_image_data.height; j++) {
@@ -438,25 +487,120 @@
 					document.getElementById("hint").src = canvas.toDataURL();
 		/*}}}*/
 
+					loading = false;
+					document.getElementById("loading_hint").style.display = "none";
 				}
 				else {
 					// retry if no hints for this room
 					image.image = new Image();
-					let index = Math.floor(Math.random()*(rooms.length-1));
-					image.image.onload = load_round.bind(image.image, rooms[index]);
-					image.image.src = "./Merged Screenshots/" + rooms[index].region + "/" + rooms[index].name + ".png";
+					image.image.onload = load_round.bind(image.image, rooms[round]);
+					image.image.src = "./Merged Screenshots/" + rooms[round].region + "/" + rooms[round].name + ".png";
 				}
 			};
 	/*}}}*/
 
+	/*{{{ init*/
 			let gl;
-			let last = 0;
-			let display_delay = 0;
 			let programs = {};
-			let solution = null;
-			let error_line = null;
 			let rooms = [];
+		/*{{{ load_progress*/
+			let load_progress = {
+				loading: 1,
+				loaded: function() {
+					this.loading--;
+					if(this.loading === 0) {
+						for(let i = 0; i < this.callbacks.length; i++) {
+							this.callbacks[i]();
+						}
+						this.callbacks = [];
+					}
+				},
+				callback: function(callback) {
+					if(this.loading === 0) callback();
+					else this.callbacks.push(callback);
+				},
+				callbacks: []
+			};
+		/*}}}*/
 
+		/*{{{ on load callback*/
+			load_progress.callback(function() {
+				rooms.sort(function(a, b) { return a.name.localeCompare(b.name); });
+				if(lobby === null) {
+					for(let i = 0; i < rooms.length; i++) {
+						let j = Math.floor(random_perc()*(rooms.length-1));
+						let temp = rooms[j];
+						rooms[j] = rooms[i];
+						rooms[i] = temp;
+					}
+					if(test_hint_selection) {
+						image.image = new Image();
+						image.image.onload = load_round;
+						image.image.src = "./Merged Screenshots/" + rooms[0].region + "/" + rooms[0].name + ".png";
+					}
+				}
+			});
+		/*}}}*/
+
+			function main() {
+				gl = document.querySelector("#canvas").getContext("webgl");
+				if(gl === null) return;
+				gl.enable(gl.BLEND);
+				gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.SRC_ALPHA, gl.ONE);
+				programs["solution"] = solution_program();
+				if(programs["solution"] === null) return;
+				programs["room"] = room_program();
+				if(programs["room"] === null) return;
+
+		/*{{{ load rooms*/
+				fetch("./regions").then(function(response) { return response.text(); }).then(async function(data) {
+					let region_abbrs = data.replaceAll("\r", "").split("\n");
+					for(let i = 0; i < region_abbrs.length; i++) {
+						(function(region) {
+						load_progress.loading++;
+						fetch("./map_" + region).then(function(response) { return response.text(); }).then(async function(data) {
+							data = data.replaceAll("\r", "");
+							let i = 0;
+							while(true) {
+								let j = data.indexOf("\n", i);
+								if(j === -1) break;
+								let line = data.substring(i, j);
+								// TODO: store connections
+								if(line.substring(0, 3) !== region + "_" && line.substring(0, 8) !== "GATE_" + region + "_") { i = j+1; continue; }
+								(function(name) {
+								load_progress.loading++;
+								fetch("./" + region + "/" + name).then(function(response) { return response.text(); }).then(async function(data) {
+									rooms.push(new room(name, data.replaceAll("\r", ""), programs["room"]));
+									load_progress.loaded();
+								});
+								})(line.replace(/:.*$/, ""));
+								line = line.replace(/^.*:\s*/, "").split(",");
+								i = j+1;
+							}
+							load_progress.loaded();
+						});
+						})(region_abbrs[i]);
+					}
+					load_progress.loaded();
+				});
+		/*}}}*/
+
+				display(0);
+			}
+			if(lobby === null) {
+				document.addEventListener("DOMContentLoaded", function(event) {
+					document.getElementById("wait_lobby").remove();
+				});
+			}
+			document.addEventListener("DOMContentLoaded", function(event) {
+				document.getElementById("js_splash").remove();
+				main();
+			});
+	/*}}}*/
+/*}}}*/
+
+/*{{{ GL*/
+		//<!--script-->
 	/*{{{ create_program(vertex_program, fragment_program)*/
 			function create_program(gl, vertex_program, fragment_program) {
 				let program = gl.createProgram();
@@ -477,9 +621,13 @@
 	/*}}}*/
 
 	/*{{{ display(timestamp)*/
+			let last = 0;
+
 			function display(timestamp) {
 				delta_time = timestamp-last;
 				last = timestamp;
+
+		/*{{{ transitions/movement*/
 				if(layer !== target_layer) {
 					// go fastest direction to focus target layer
 					let new_layer = layer+(((target_layer-layer+3)%3 < 3/2) ? 1 : -1)*(delta_time/1000)/0.25;
@@ -512,6 +660,7 @@
 					}
 					if(x === target_x && y === target_y && zoom === target_zoom) showing_guess = false;
 				}
+		/*}}}*/
 
 				gl.canvas.width  = window.outerWidth;
 				gl.canvas.height = window.outerHeight;
@@ -571,56 +720,6 @@
 			}
 	/*}}}*/
 
-			function main() {
-				gl = document.querySelector("#canvas").getContext("webgl");
-				if(gl === null) return;
-				gl.enable(gl.BLEND);
-				gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.SRC_ALPHA, gl.ONE);
-				programs["solution"] = solution_program();
-				if(programs["solution"] === null) return;
-				programs["room"] = room_program();
-				if(programs["room"] === null) return;
-
-	/*{{{ load rooms*/
-				fetch("./regions")
-					.then(function(response) {
-						return response.text();
-					}).then(async function(data) {
-						let region_abbrs = data.replaceAll("\r", "").split("\n");
-						for(let i = 0; i < region_abbrs.length; i++) {
-							(function(region) {
-							fetch("./map_" + region)
-								.then(function(response) {
-									return response.text();
-								}).then(async function(data) {
-									data = data.replaceAll("\r", "");
-									let i = 0;
-									while(true) {
-										let j = data.indexOf("\n", i);
-										if(j === -1) break;
-										let line = data.substring(i, j);
-										// TODO: store connections
-										if(line.substring(0, 3) !== region + "_" && line.substring(0, 8) !== "GATE_" + region + "_") { i = j+1; continue; }
-										(function(name) {
-										fetch("./" + region + "/" + name)
-											.then(function(response) {
-												return response.text();
-											}).then(async function(data) {
-												rooms.push(new room(name, data.replaceAll("\r", ""), programs["room"]));
-											});
-										})(line.replace(/:.*$/, ""));
-										line = line.replace(/^.*:\s*/, "").split(",");
-										i = j+1;
-									}
-								});
-							})(region_abbrs[i]);
-						}
-					});
-	/*}}}*/
-
-				display(0);
-			}
-
 	/*{{{ solution_program()*/
 			function solution_program() {
 				let program = { "program": create_program(gl, "solution-vertex-shader", "solution-fragment-shader"), "uniforms": {}, "attributes": {} };
@@ -656,6 +755,8 @@
 
 	/*{{{ gl_solution(room, image_data, program)*/
 			function gl_solution(room, image_data, program) {
+
+		/*{{{ init*/
 				this.room = room;
 				gl.useProgram(program["program"]);
 				let solution_data = [];
@@ -690,6 +791,7 @@
 				this.num_texture = solution_data.length/2;
 				delete(solution_data);
 				delete(solution_texture_data);
+		/*}}}*/
 
 		/*{{{ draw()*/
 				this.draw = function() {
@@ -716,6 +818,8 @@
 	/*}}}*/
 
 	/*{{{ gl_error_line(program)*/
+			let error_line = null;
+
 			function gl_error_line(program) {
 				gl.useProgram(program["program"]);
 
@@ -746,6 +850,8 @@
 
 	/*{{{ room(name, data, program)*/
 			function room(name, data, program) {
+
+		/*{{{ init*/
 				this.name = name;
 				this.region = name.replace(/^GATE_/, "").substring(0, 2);
 				gl.useProgram(program["program"]);
@@ -753,7 +859,7 @@
 				let water_data = [];
 				let line_data  = [];
 
-		/*{{{ parse data*/
+			/*{{{ parse data*/
 				let i = 0;
 				let j = data.indexOf("\n");
 				let line = data.substr(i, j-i).split(",");
@@ -815,7 +921,7 @@
 					}
 					i = j+1;
 				}
-		/*}}}*/
+			/*}}}*/
 
 				this.air_vertex_positions = gl.createBuffer();
 				gl.bindBuffer(gl.ARRAY_BUFFER, this.air_vertex_positions);
@@ -834,6 +940,7 @@
 				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(line_data), gl.STATIC_DRAW);
 				this.num_lines = line_data.length/2;
 				delete(line_data);
+		/*}}}*/
 
 		/*{{{ draw()*/
 				this.draw = function() {
@@ -899,10 +1006,7 @@
 
 			}
 	/*}}}*/
-
-			document.addEventListener("DOMContentLoaded", function(event) { main(); });
 		</script>
-<!--}}}-->
 
 <!--{{{ solution-vertex-shader-->
 		<script id="solution-vertex-shader" type="x-shader/x-vertex">
@@ -983,20 +1087,23 @@
 			}
 		</script>
 <!--}}}-->
+<!--}}}-->
 
 	</head>
-
 	<body>
+		<span id="loading_hint" class="splash" style="display:none; opacity:0.75"><h1 style="opacity:1">Loading hint. . .</h1></span>
+		<span id="wait_lobby"   class="splash"><h1>Connecting to lobby. . .</h1></span>
+		<span id="js_splash"    class="splash"><h1>Please enable JavaScript</h1></span>
 
 <!--{{{ settings-->
-		<span id="settings" style="background-color: black">
+		<span id="settings" style="background-color:black; z-index:-1;">
 			<br />
 			<br />
 			<h1>SETTINGS</h1>
 			<form>
 
 	<!--{{{ left half-->
-				<span style="display: inline-block; width: 50%; float: left;">
+				<span style="display:inline-block; width:50%; float:left;">
 					WASD, arrow keys, and/or optionally scrolling to move<br />
 					Scrolling to zoom<br />
 					Space to change layers<br />
@@ -1009,19 +1116,19 @@
 	<!--}}}-->
 
 	<!--{{{ right half-->
-				<span style="display: inline-block; width: 50%; float: left;">
+				<span style="display:inline-block; width:50%; float:left;">
 
 		<!--{{{ difficulties-->
-					<span style="content: ''; display: table; width: 100%;">
-						<label class="choice" style="float: left; margin-right: 1em;">
+					<span style="content:''; display:table; width:100%;">
+						<label class="choice" style="float:left; margin-right:1em;">
 							<input type="radio" id="monk" name="difficulty" value="monk">
 							<span><img src="./MultiplayerPortrait11.png" alt="Difficulty: Monk" draggable="false"></span>
 						</label>
-						<label class="choice" style="float: left; margin-right: 1em;">
+						<label class="choice" style="float:left; margin-right:1em;">
 							<input type="radio" id="survivor" name="difficulty" value="survivor" checked="checked">
 							<span><img src="./MultiplayerPortrait01.png" alt="Difficulty: Survivor" draggable="false"></span>
 						</label>
-						<label class="choice" style="float: left">
+						<label class="choice" style="float:left">
 							<input type="radio" id="hunter" name="difficulty" value="hunter">
 							<span><img src="./MultiplayerPortrait21.png" alt="Difficulty: Hunter" draggable="false"></span>
 						</label>
@@ -1034,7 +1141,7 @@
 					<table>
 						<tr>
 							<td>
-								<span style="margin-right: 0.5em">Color:</span>
+								<span style="margin-right:0.5em">Color:</span>
 							</td>
 							<td>
 								<label class="check choice">
@@ -1044,7 +1151,7 @@
 						</tr>
 						<tr>
 							<td>
-								<span style="margin-right: 0.5em">Stretching:</span>
+								<span style="margin-right:0.5em">Stretching:</span>
 							</td>
 							<td>
 								<label class="check choice">
@@ -1054,7 +1161,7 @@
 						</tr>
 						<tr>
 							<td>
-								<span style="margin-right: 0.5em">Scrolling moves:</span>
+								<span style="margin-right:0.5em">Scrolling moves:</span>
 							</td>
 							<td>
 								<label class="check choice">
@@ -1068,8 +1175,8 @@
 					<br />
 
 		<!--{{{ map type-->
-					<span style="display: inline-block; text-align: center;">
-						<span style="color: #4B4653; margin-right: 0.5em;">Map type:</span>
+					<span style="display:inline-block; text-align:center;">
+						<span style="color:#4B4653; margin-right:0.5em;">Map type:</span>
 						<label class="text choice">
 							<input type="radio" id="in_game" name="map" value="in_game" checked="checked">
 							<span><span>IN-GAME</span></span>
@@ -1092,14 +1199,14 @@
 
 			</form>
 
-			<span style="position: absolute; bottom: 1em; right: 1em;">
+			<span style="position:absolute; bottom:1em; right:1em;">
 				<a href="https://github.com/IsaacElenbaas/RWGG">Rain World GeoGuesser</a> by <a href="https://github.com/IsaacElenbaas/">Isaac Elenbaas</a>
 			</span>
 		</span>
 <!--}}}-->
 
-		<span id="show_settings" onclick="show_settings()" style="z-index: -1">&#9881;</span>
-		<img id="hint" onclick="expand_hint()" draggable="false" style="z-index: -1">
-		<canvas id="canvas" style="z-index: -2"></canvas>
+		<span id="show_settings" onclick="show_settings()" style="z-index:-2">&#9881;</span>
+		<img id="hint" onclick="expand_hint()" draggable="false" style="z-index:-2">
+		<canvas id="canvas" style="z-index:-3"></canvas>
 	</body>
 </html>
