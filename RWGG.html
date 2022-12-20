@@ -465,8 +465,10 @@
 					this.src = canvas.toDataURL();
 					document.body.appendChild(this);
 					document.body.lastElementChild.style = "position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; z-index: 1;";
-					loading = false;
-					document.getElementById("loading_hint").style.display = "none";
+					setTimeout(function() {
+						loading = false;
+						document.getElementById("loading_hint").style.display = "none";
+					}, 1);
 				}
 				else if(options.length > 0) {
 
@@ -501,8 +503,10 @@
 					document.getElementById("hint").src = canvas.toDataURL();
 		/*}}}*/
 
-					loading = false;
-					document.getElementById("loading_hint").style.display = "none";
+					setTimeout(function() {
+						loading = false;
+						document.getElementById("loading_hint").style.display = "none";
+					}, 1);
 				}
 				else {
 					// retry if no hints for this room
@@ -517,6 +521,8 @@
 			let gl;
 			let programs = {};
 			let rooms = [];
+			let rooms_by_name = {};
+			let connections = [];
 		/*{{{ load_progress*/
 			let load_progress = {
 				loading: 1,
@@ -561,10 +567,12 @@
 				if(gl === null) return;
 				gl.enable(gl.BLEND);
 				gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.SRC_ALPHA, gl.ONE);
-				programs["solution"] = solution_program();
-				if(programs["solution"] === null) return;
 				programs["room"] = room_program();
 				if(programs["room"] === null) return;
+				programs["connection"] = connection_program();
+				if(programs["connection"] === null) return;
+				programs["solution"] = solution_program();
+				if(programs["solution"] === null) return;
 				programs["error_line"] = error_line_program();
 				if(programs["error_line"] === null) return;
 				error_line = new gl_error_line(programs["error_line"]);
@@ -582,12 +590,15 @@
 								let j = data.indexOf("\n", i);
 								if(j === -1) break;
 								let line = data.substring(i, j);
-								// TODO: store connections
+								if(line.substring(0, 10) === "Connection")
+									connections.push(new connection(line.replace(/^.*?:\s*/, "").split(","), programs["connection"]));
 								if(line.substring(0, 3) !== region + "_" && line.substring(0, 8) !== "GATE_" + region + "_") { i = j+1; continue; }
 								(function(name) {
 								load_progress.loading++;
 								fetch("./" + region + "/" + name).then(function(response) { return response.text(); }).then(async function(data) {
-									rooms.push(new room(name, data.replaceAll("\r", ""), programs["room"]));
+									let new_room = new room(name, data.replaceAll("\r", ""), programs["room"]);
+									rooms.push(new_room);
+									rooms_by_name[name] = new_room;
 									load_progress.loaded();
 								});
 								})(line.replace(/:.*$/, ""));
@@ -600,6 +611,32 @@
 					}
 					load_progress.loaded();
 				});
+		/*}}}*/
+
+		/*{{{ connection_texture*/
+				connection_texture = gl.createTexture();
+				gl.bindTexture(gl.TEXTURE_2D, connection_texture);
+				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 8, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([
+					0,   0,   0,   255,
+					0,   0,   0,   255,
+					191, 191, 191, 255,
+					255, 255, 255, 255,
+					255, 255, 255, 255,
+					255, 255, 255, 255,
+					255, 255, 255, 255,
+					255, 255, 255, 255,
+					0,   0,   0,   255,
+					0,   0,   0,   255,
+					191, 191, 191, 255,
+					255, 255, 255, 255,
+					255, 255, 255, 255,
+					255, 255, 255, 255,
+					255, 255, 255, 255,
+					255, 255, 255, 255
+				]));
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.MIRRORED_REPEAT);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 		/*}}}*/
 
 				display(0);
@@ -725,10 +762,24 @@
 							rooms[j].draw();
 						}
 					}
+					gl.useProgram(programs["connection"]["program"]);
+					gl.uniform1f(programs["connection"]["uniforms"]["time"], timestamp/1000);
+					for(let j = 0; j < connections.length; j++) {
+						if(connections[j].initialized && Math.min(connections[j].layer_start, connections[j].layer_end) === i) {
+							gl.uniform1f(programs["connection"]["uniforms"]["length"], connections[j].length);
+							gl.uniformMatrix4fv(programs["connection"]["uniforms"]["model_view"], false, new Float32Array([
+								1,                         0,                         0, 0,
+								0,                         1,                         0, 0,
+								0,                         0,                         1, 0,
+								connections[j].start[0]-x, connections[j].start[1]+y, 0, 1
+							]));
+							connections[j].draw();
+						}
+					}
+					gl.useProgram(programs["room"]["program"]);
 				}
 				if(guessed) {
 					gl.useProgram(programs["error_line"]["program"]);
-					gl.uniform1f(programs["error_line"]["uniforms"]["progress"], error_line_progress);
 					// this is to match clip_space conversions in other vertex shaders, can't go between rooms with it active so not for this
 					let adjust_x = -solution.room.w/35+2*solution.room.o_x/35;
 					let adjust_y = -solution.room.h/35-2*solution.room.o_y/35;
@@ -744,6 +795,43 @@
 					error_line.draw();
 				}
 				window.requestAnimationFrame(display);
+			}
+	/*}}}*/
+
+	/*{{{ room_program()*/
+			function room_program() {
+				let program = { "program": create_program(gl, "room_vertex_shader", "room_fragment_shader"), "uniforms": {}, "attributes": {} };
+				if(program["program"] === null) return null;
+				gl.useProgram(program["program"]);
+				program["attributes"]["position"] = gl.getAttribLocation(program["program"], "a_position");
+				program["uniforms"]["layer"] = gl.getUniformLocation(program["program"], "u_layer");
+				program["uniforms"]["stretch"] = gl.getUniformLocation(program["program"], "u_stretch");
+				program["uniforms"]["ratio"] = gl.getUniformLocation(program["program"], "u_ratio");
+				program["uniforms"]["projection"] = gl.getUniformLocation(program["program"], "u_projection");
+				program["uniforms"]["model_view"] = gl.getUniformLocation(program["program"], "u_model_view");
+				program["uniforms"]["color"] = gl.getUniformLocation(program["program"], "u_color");
+				return program;
+			}
+	/*}}}*/
+
+	/*{{{ connection_program()*/
+			function connection_program() {
+				let program = { "program": create_program(gl, "connection_vertex_shader", "connection_fragment_shader"), "uniforms": {}, "attributes": {} };
+				if(program["program"] === null) return null;
+				gl.useProgram(program["program"]);
+				program["attributes"]["position"] = gl.getAttribLocation(program["program"], "a_position");
+				program["attributes"]["t"] = gl.getAttribLocation(program["program"], "a_t");
+				program["uniforms"]["start_layer"] = gl.getUniformLocation(program["program"], "u_start_layer");
+				program["uniforms"]["end_layer"] = gl.getUniformLocation(program["program"], "u_end_layer");
+				program["uniforms"]["cur_layer"] = gl.getUniformLocation(program["program"], "u_cur_layer");
+				program["uniforms"]["stretch"] = gl.getUniformLocation(program["program"], "u_stretch");
+				program["uniforms"]["ratio"] = gl.getUniformLocation(program["program"], "u_ratio");
+				program["uniforms"]["projection"] = gl.getUniformLocation(program["program"], "u_projection");
+				program["uniforms"]["model_view"] = gl.getUniformLocation(program["program"], "u_model_view");
+				program["uniforms"]["sampler"] = gl.getUniformLocation(program["program"], "u_sampler");
+				program["uniforms"]["length"] = gl.getUniformLocation(program["program"], "u_length");
+				program["uniforms"]["time"] = gl.getUniformLocation(program["program"], "u_time");
+				return program;
 			}
 	/*}}}*/
 
@@ -764,22 +852,6 @@
 			}
 	/*}}}*/
 
-	/*{{{ room_program()*/
-			function room_program() {
-				let program = { "program": create_program(gl, "room_vertex_shader", "room_fragment_shader"), "uniforms": {}, "attributes": {} };
-				if(program["program"] === null) return null;
-				gl.useProgram(program["program"]);
-				program["attributes"]["position"] = gl.getAttribLocation(program["program"], "a_position");
-				program["uniforms"]["layer"] = gl.getUniformLocation(program["program"], "u_layer");
-				program["uniforms"]["stretch"] = gl.getUniformLocation(program["program"], "u_stretch");
-				program["uniforms"]["ratio"] = gl.getUniformLocation(program["program"], "u_ratio");
-				program["uniforms"]["projection"] = gl.getUniformLocation(program["program"], "u_projection");
-				program["uniforms"]["model_view"] = gl.getUniformLocation(program["program"], "u_model_view");
-				program["uniforms"]["color"] = gl.getUniformLocation(program["program"], "u_color");
-				return program;
-			}
-	/*}}}*/
-
 	/*{{{ error_line_program()*/
 			function error_line_program() {
 				let program = { "program": create_program(gl, "error_line_vertex_shader", "error_line_fragment_shader"), "uniforms": {}, "attributes": {} };
@@ -794,99 +866,6 @@
 				program["uniforms"]["color"] = gl.getUniformLocation(program["program"], "u_color");
 				program["uniforms"]["progress"] = gl.getUniformLocation(program["program"], "u_progress");
 				return program;
-			}
-	/*}}}*/
-
-	/*{{{ gl_solution(room, image_data, program)*/
-			function gl_solution(room, image_data, program) {
-
-		/*{{{ init*/
-				this.room = room;
-				gl.useProgram(program["program"]);
-				let solution_data = [];
-				let solution_texture_data = [];
-
-				let w = Math.round(image_data.width/step);
-				let h = Math.round(image_data.height/step);
-				// using more steps because sphere-like stretching is done in vertex shader
-				for(let i = 0; i < this.room.w; i++) {
-					for(let j = 0; j < this.room.h; j++) {
-						solution_data.push((w/this.room.w)*((i  )/this.room.w)+this.room.o_x/this.room.w, (h/this.room.h)*((j  )/this.room.h)-this.room.o_y/this.room.h);
-						solution_data.push((w/this.room.w)*((i+1)/this.room.w)+this.room.o_x/this.room.w, (h/this.room.h)*((j  )/this.room.h)-this.room.o_y/this.room.h);
-						solution_data.push((w/this.room.w)*((i+1)/this.room.w)+this.room.o_x/this.room.w, (h/this.room.h)*((j+1)/this.room.h)-this.room.o_y/this.room.h);
-						solution_data.push((w/this.room.w)*((i  )/this.room.w)+this.room.o_x/this.room.w, (h/this.room.h)*((j  )/this.room.h)-this.room.o_y/this.room.h);
-						solution_data.push((w/this.room.w)*((i+1)/this.room.w)+this.room.o_x/this.room.w, (h/this.room.h)*((j+1)/this.room.h)-this.room.o_y/this.room.h);
-						solution_data.push((w/this.room.w)*((i  )/this.room.w)+this.room.o_x/this.room.w, (h/this.room.h)*((j+1)/this.room.h)-this.room.o_y/this.room.h);
-						solution_texture_data.push( i   /this.room.w,  j   /this.room.h);
-						solution_texture_data.push((i+1)/this.room.w,  j   /this.room.h);
-						solution_texture_data.push((i+1)/this.room.w, (j+1)/this.room.h);
-						solution_texture_data.push( i   /this.room.w,  j   /this.room.h);
-						solution_texture_data.push((i+1)/this.room.w, (j+1)/this.room.h);
-						solution_texture_data.push( i   /this.room.w, (j+1)/this.room.h);
-					}
-				}
-
-				this.solution_vertex_positions = gl.createBuffer();
-				gl.bindBuffer(gl.ARRAY_BUFFER, this.solution_vertex_positions);
-				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(solution_data), gl.STATIC_DRAW);
-				this.solution_texture_coords = gl.createBuffer();
-				gl.bindBuffer(gl.ARRAY_BUFFER, this.solution_texture_coords);
-				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(solution_texture_data), gl.STATIC_DRAW);
-				this.num_texture = solution_data.length/2;
-				delete(solution_data);
-				delete(solution_texture_data);
-		/*}}}*/
-
-		/*{{{ draw()*/
-				this.draw = function() {
-					gl.uniform1f(program["uniforms"]["layer"], (settings["dev"]) ? 0 : this.room.layer);
-
-					// Tell the attribute how to get data out of solution_vertex_positions (ARRAY_BUFFER)
-					let size = 2;          // 2 components per iteration
-					let stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
-					let offset = 0;        // start at the beginning of the buffer
-					gl.bindBuffer(gl.ARRAY_BUFFER, this.solution_vertex_positions);
-					gl.vertexAttribPointer(program["attributes"]["position"], size, gl.FLOAT, false, stride, offset);
-					gl.enableVertexAttribArray(program["attributes"]["position"]);
-					gl.bindBuffer(gl.ARRAY_BUFFER, this.solution_texture_coords);
-					gl.vertexAttribPointer(program["attributes"]["texture_coords"], size, gl.FLOAT, false, stride, offset);
-					gl.enableVertexAttribArray(program["attributes"]["texture_coords"]);
-					gl.activeTexture(gl.TEXTURE0);
-					gl.bindTexture(gl.TEXTURE_2D, image.texture);
-					gl.uniform1i(program["uniforms"]["sampler"], 0);
-					gl.drawArrays(gl.TRIANGLES, 0, this.num_texture);
-				}
-		/*}}}*/
-
-			}
-	/*}}}*/
-
-	/*{{{ gl_error_line(program)*/
-			let error_line = null;
-
-			function gl_error_line(program) {
-				gl.useProgram(program["program"]);
-
-				this.error_vertex_positions = gl.createBuffer();
-				gl.bindBuffer(gl.ARRAY_BUFFER, this.error_vertex_positions);
-				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 1]), gl.STATIC_DRAW);
-
-		/*{{{ draw()*/
-				this.draw = function() {
-					gl.uniform1f(program["uniforms"]["layer"], (settings["dev"]) ? 0 : solution.room.layer);
-					// Tell the attribute how to get data out of error_vertex_positions (ARRAY_BUFFER)
-					let size = 2;          // 2 components per iteration
-					let stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
-					let offset = 0;        // start at the beginning of the buffer
-					gl.bindBuffer(gl.ARRAY_BUFFER, this.error_vertex_positions);
-					gl.vertexAttribPointer(program["attributes"]["position"], size, gl.FLOAT, false, stride, offset);
-					gl.enableVertexAttribArray(program["attributes"]["position"]);
-					gl.uniform4f(program["uniforms"]["color"], 255, 0, 0, 255);
-					gl.lineWidth(5/(0.075*(zoom+2.5)));
-					gl.drawArrays(gl.LINES, 0, 2);
-				}
-		/*}}}*/
-
 			}
 	/*}}}*/
 
@@ -991,7 +970,7 @@
 					let size;
 					let stride;
 					let offset;
-					let layer_opacity = (settings["dev"]) ? 1 : Math.round(Math.max(0, Math.abs(3/2-((layer-this.layer)+3)%3)-(3/2-1))*100)/100;
+					let layer_opacity = (settings["dev"]) ? 1 : Math.max(0, Math.abs(3/2-((layer-this.layer)+3)%3)-(3/2-1));
 					let color;
 					if(layer_opacity !== 0) {
 						if(!guessed || solution.room !== this) {
@@ -1048,14 +1027,250 @@
 
 			}
 	/*}}}*/
+
+	/*{{{ connection(data, program)*/
+		/*{{{ connection path determination*/
+			function connection_integrate(d1, d2, angle, t, ratio) {
+				// 0 is right, 1 is up, 2 is left, 3 is down
+				let r1 =   d1      *(Math.PI/2);
+				let r2 = ((d2+2)%4)*(Math.PI/2);
+				let dr = r2-r1;
+				// take shortest path
+				if(Math.abs(dr) > Math.PI) dr = Math.sign(dr)*(Math.abs(dr)-2*Math.PI);
+				// ensure that 180s curve in the correct direction
+				if(Math.abs(Math.abs(dr)-Math.PI) <= 0.01) dr = Math.sign(d1%2*Math.cos(angle)-(d1+1)%2*Math.sin(angle))*Math.PI;
+				// TODO: weigh ((p2-p1) dot d1) versus ((p1-p2) dot d2) for angle transition speed
+				// TODO: in the middle be more like angle param, see big hoops in LF
+				// TODO: maybe transition to angle at t=weight value then back?
+				// TODO: could then split "halves" and put more middle to prevent wackyness with big connections
+				// account for coordinate flips when not going up-right
+				let down =  angle                        < Math.PI;
+				let left = (angle+Math.PI/2)%(2*Math.PI) > Math.PI;
+				return [
+					 Math.sign(Math.cos(r1+t*dr/2))*((left) ? -1 : 1)*Math.abs(Math.sin(r1+t*dr)-Math.sin(r1))/Math.max(1, 1/ratio),
+					-Math.sign(Math.sin(r1+t*dr/2))*((down) ? -1 : 1)*Math.abs(Math.cos(r1+t*dr)-Math.cos(r1))/Math.max(1,   ratio)
+				];
+			}
+			function connection_interpolate(d1, d2, angle, t, angle_movement, ratio) {
+				t = Math.min(1, Math.max(0, t));
+				let cur_angle_movement = connection_integrate(d1, d2, angle, t, ratio);
+				return [
+					t*(1-Math.min(1, angle_movement[0]))+cur_angle_movement[0]/Math.max(1, angle_movement[0]),
+					t*(1-Math.min(1, angle_movement[1]))+cur_angle_movement[1]/Math.max(1, angle_movement[1])
+					//(angle_movement[0] <= 0.01) ? t : cur_angle_movement[0]/angle_movement[0],
+					//(angle_movement[1] <= 0.01) ? t : cur_angle_movement[1]/angle_movement[1]
+				];
+			}
+		/*}}}*/
+
+			let connection_texture;
+
+			load_progress.callback(function() {
+				for(let i = 0; i < connections.length; i++) {
+					connections[i].init();
+				}
+			});
+
+			function connection(data, program) {
+
+		/*{{{ init*/
+				this.data = data;
+				this.program = program;
+				this.initialized = false;
+
+				this.init = function() {
+					let start_room = rooms_by_name[data[0]];
+					let end_room   = rooms_by_name[data[1]];
+					this.start = [
+						room_coords(start_room)[0]-start_room.w/35+2*parseInt(data[2])/35,
+						room_coords(start_room)[1]-start_room.h/35+2*parseInt(data[3])/35
+					];
+					this.end = [
+						room_coords(end_room)[0]-end_room.w/35+2*parseInt(data[4])/35,
+						room_coords(end_room)[1]-end_room.h/35+2*parseInt(data[5])/35
+					];
+					this.length = Math.sqrt(Math.pow(this.end[0]-this.start[0], 2)+Math.pow(this.end[1]-this.start[1], 2));
+					this.layer_start = start_room.layer;
+					this.layer_end = end_room.layer;
+					data[6] = parseInt(data[6]);
+					data[7] = parseInt(data[7]);
+
+					gl.useProgram(program["program"]);
+					let connection_data = [];
+					let connection_t_data = [];
+					this.segments = 10+10*Math.floor(Math.max(1, length)-1);
+					let width = 1/35/2;
+					let angle = Math.atan2(this.end[1]-this.start[1], this.end[0]-this.start[0]);
+					angle = (angle+2*Math.PI)%(2*Math.PI);
+					let ratio = (this.end[1]-this.start[1])/(this.end[0]-this.start[0]);
+					let angle_movement = connection_integrate(data[6], data[7], angle, 1, ratio);
+					for(let i = 0; i <= this.segments; i++) {
+						let seg_start = connection_interpolate(data[6], data[7], angle,  i   /this.segments, angle_movement, ratio);
+						let seg_end   = connection_interpolate(data[6], data[7], angle, (i+1)/this.segments, angle_movement, ratio);
+						if(seg_end[0] === seg_start[0] && seg_end[1] === seg_start[1]) {
+							seg_end = connection_interpolate(data[6], data[7], angle, (i-1)/this.segments, angle_movement, ratio);
+							seg_end[0] -= 2*(seg_end[0]-seg_start[0]);
+							seg_end[1] -= 2*(seg_end[1]-seg_start[1]);
+						}
+						let tan = [
+							(seg_end[0]-seg_start[0])*(this.end[0]-this.start[0]),
+							(seg_end[1]-seg_start[1])*(this.end[1]-this.start[1])
+						];
+						let mag = Math.sqrt(Math.pow(tan[0], 2)+Math.pow(tan[1], 2));
+						tan[0] /= mag; tan[1] /= mag;
+						connection_data.push(
+							  1/35+seg_start[0]*(this.end[0]-this.start[0])-width/2*tan[1],
+							-(1/35+seg_start[1]*(this.end[1]-this.start[1])+width/2*tan[0])
+						);
+						connection_data.push(
+							  1/35+seg_start[0]*(this.end[0]-this.start[0])+width/2*tan[1],
+							-(1/35+seg_start[1]*(this.end[1]-this.start[1])-width/2*tan[0])
+						);
+						connection_t_data.push(i/this.segments);
+						connection_t_data.push(i/this.segments);
+					}
+
+					this.connection_vertex_positions = gl.createBuffer();
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.connection_vertex_positions);
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(connection_data), gl.STATIC_DRAW);
+					this.connection_t_values = gl.createBuffer();
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.connection_t_values);
+					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(connection_t_data), gl.STATIC_DRAW);
+					delete(connection_data);
+					delete(connection_t_data);
+					delete(this.data);
+					this.initialized = true;
+				}
+		/*}}}*/
+
+		/*{{{ draw()*/
+				this.draw = function() {
+					gl.uniform1f(program["uniforms"]["start_layer"], (settings["dev"]) ? 0 : this.layer_start);
+					gl.uniform1f(program["uniforms"]["end_layer"],   (settings["dev"]) ? 0 : this.layer_end);
+					gl.uniform1f(program["uniforms"]["cur_layer"], (settings["dev"]) ? 0 : layer);
+
+					// Tell the attribute how to get data out of connection_vertex_positions (ARRAY_BUFFER)
+					let size = 2;          // 2 components per iteration
+					let stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+					let offset = 0;        // start at the beginning of the buffer
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.connection_vertex_positions);
+					gl.vertexAttribPointer(program["attributes"]["position"], size, gl.FLOAT, false, stride, offset);
+					gl.enableVertexAttribArray(program["attributes"]["position"]);
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.connection_t_values);
+					gl.vertexAttribPointer(program["attributes"]["t"], 1, gl.FLOAT, false, stride, offset);
+					gl.enableVertexAttribArray(program["attributes"]["t"]);
+					gl.activeTexture(gl.TEXTURE0);
+					gl.bindTexture(gl.TEXTURE_2D, connection_texture);
+					gl.uniform1i(program["uniforms"]["sampler"], 0);
+					gl.drawArrays(gl.TRIANGLE_STRIP, 0, 2*(this.segments+1));
+				}
+		/*}}}*/
+
+			}
+	/*}}}*/
+
+	/*{{{ gl_solution(room, image_data, program)*/
+			function gl_solution(room, image_data, program) {
+
+		/*{{{ init*/
+				this.room = room;
+				gl.useProgram(program["program"]);
+				let solution_data = [];
+				let solution_texture_data = [];
+
+				let w = Math.round(image_data.width/step);
+				let h = Math.round(image_data.height/step);
+				// using more steps because sphere-like stretching is done in vertex shader
+				for(let i = 0; i < this.room.w; i++) {
+					for(let j = 0; j < this.room.h; j++) {
+						solution_data.push((w/this.room.w)*((i  )/this.room.w)+this.room.o_x/this.room.w, (h/this.room.h)*((j  )/this.room.h)-this.room.o_y/this.room.h);
+						solution_data.push((w/this.room.w)*((i+1)/this.room.w)+this.room.o_x/this.room.w, (h/this.room.h)*((j  )/this.room.h)-this.room.o_y/this.room.h);
+						solution_data.push((w/this.room.w)*((i+1)/this.room.w)+this.room.o_x/this.room.w, (h/this.room.h)*((j+1)/this.room.h)-this.room.o_y/this.room.h);
+						solution_data.push((w/this.room.w)*((i  )/this.room.w)+this.room.o_x/this.room.w, (h/this.room.h)*((j  )/this.room.h)-this.room.o_y/this.room.h);
+						solution_data.push((w/this.room.w)*((i+1)/this.room.w)+this.room.o_x/this.room.w, (h/this.room.h)*((j+1)/this.room.h)-this.room.o_y/this.room.h);
+						solution_data.push((w/this.room.w)*((i  )/this.room.w)+this.room.o_x/this.room.w, (h/this.room.h)*((j+1)/this.room.h)-this.room.o_y/this.room.h);
+						solution_texture_data.push( i   /this.room.w,  j   /this.room.h);
+						solution_texture_data.push((i+1)/this.room.w,  j   /this.room.h);
+						solution_texture_data.push((i+1)/this.room.w, (j+1)/this.room.h);
+						solution_texture_data.push( i   /this.room.w,  j   /this.room.h);
+						solution_texture_data.push((i+1)/this.room.w, (j+1)/this.room.h);
+						solution_texture_data.push( i   /this.room.w, (j+1)/this.room.h);
+					}
+				}
+
+				this.solution_vertex_positions = gl.createBuffer();
+				gl.bindBuffer(gl.ARRAY_BUFFER, this.solution_vertex_positions);
+				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(solution_data), gl.STATIC_DRAW);
+				this.solution_texture_coords = gl.createBuffer();
+				gl.bindBuffer(gl.ARRAY_BUFFER, this.solution_texture_coords);
+				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(solution_texture_data), gl.STATIC_DRAW);
+				this.num_texture = solution_data.length/2;
+				delete(solution_data);
+				delete(solution_texture_data);
+		/*}}}*/
+
+		/*{{{ draw()*/
+				this.draw = function() {
+					gl.uniform1f(program["uniforms"]["layer"], (settings["dev"]) ? 0 : this.room.layer);
+
+					// Tell the attribute how to get data out of solution_vertex_positions (ARRAY_BUFFER)
+					let size = 2;          // 2 components per iteration
+					let stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+					let offset = 0;        // start at the beginning of the buffer
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.solution_vertex_positions);
+					gl.vertexAttribPointer(program["attributes"]["position"], size, gl.FLOAT, false, stride, offset);
+					gl.enableVertexAttribArray(program["attributes"]["position"]);
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.solution_texture_coords);
+					gl.vertexAttribPointer(program["attributes"]["texture_coords"], size, gl.FLOAT, false, stride, offset);
+					gl.enableVertexAttribArray(program["attributes"]["texture_coords"]);
+					gl.activeTexture(gl.TEXTURE0);
+					gl.bindTexture(gl.TEXTURE_2D, image.texture);
+					gl.uniform1i(program["uniforms"]["sampler"], 0);
+					gl.drawArrays(gl.TRIANGLES, 0, this.num_texture);
+				}
+		/*}}}*/
+
+			}
+	/*}}}*/
+
+	/*{{{ gl_error_line(program)*/
+			let error_line = null;
+
+			function gl_error_line(program) {
+				gl.useProgram(program["program"]);
+
+				this.error_vertex_positions = gl.createBuffer();
+				gl.bindBuffer(gl.ARRAY_BUFFER, this.error_vertex_positions);
+				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 1]), gl.STATIC_DRAW);
+
+		/*{{{ draw()*/
+				this.draw = function() {
+					gl.uniform1f(program["uniforms"]["layer"], (settings["dev"]) ? 0 : solution.room.layer);
+					gl.uniform1f(program["uniforms"]["progress"], error_line_progress);
+
+					// Tell the attribute how to get data out of error_vertex_positions (ARRAY_BUFFER)
+					let size = 2;          // 2 components per iteration
+					let stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
+					let offset = 0;        // start at the beginning of the buffer
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.error_vertex_positions);
+					gl.vertexAttribPointer(program["attributes"]["position"], size, gl.FLOAT, false, stride, offset);
+					gl.enableVertexAttribArray(program["attributes"]["position"]);
+					gl.uniform4f(program["uniforms"]["color"], 255, 0, 0, 255);
+					gl.lineWidth(5/(0.075*(zoom+2.5)));
+					gl.drawArrays(gl.LINES, 0, 2);
+				}
+		/*}}}*/
+
+			}
+	/*}}}*/
 		</script>
 
 <!--{{{ room_vertex_shader-->
 		<script id="room_vertex_shader" type="x-shader/x-vertex">
 			attribute vec2 a_position;
+
 			uniform float u_layer;
 			uniform bool u_stretch;
-
 			uniform float u_ratio;
 			uniform mat4 u_projection;
 			uniform mat4 u_model_view;
@@ -1066,8 +1281,8 @@
 				vec4 screen_space = u_projection * u_model_view * vec4(clip_space*vec2(1, -1), -0.75-0.25*(u_layer/2.0), 1);
 
 				if(u_stretch) {
-					screen_space[0] *= 1.0+(1.0-cos(min(3.14/2.0, abs(1.0/max(1.0, u_ratio)*screen_space[0]/screen_space[3, 3])/1.75)));
-					screen_space[1] *= 1.0+(1.0-cos(min(3.14/2.0, abs(    min(1.0, u_ratio)*screen_space[1]/screen_space[3, 3])/1.75)));
+					screen_space[0] *= 1.0+(1.0-cos(min(3.14/2.0, abs(1.0/max(1.0, u_ratio)*screen_space[0]/screen_space[3])/1.75)));
+					screen_space[1] *= 1.0+(1.0-cos(min(3.14/2.0, abs(    min(1.0, u_ratio)*screen_space[1]/screen_space[3])/1.75)));
 				}
 
 				gl_Position = screen_space;
@@ -1087,13 +1302,79 @@
 		</script>
 <!--}}}-->
 
+<!--{{{ connection_vertex_shader-->
+		<script id="connection_vertex_shader" type="x-shader/x-vertex">
+			attribute vec2 a_position;
+			attribute float a_t;
+
+			uniform float u_start_layer;
+			uniform float u_end_layer;
+			uniform bool u_stretch;
+			uniform float u_ratio;
+			uniform mat4 u_projection;
+			uniform mat4 u_model_view;
+
+			varying float v_t;
+			varying float v_start_layer;
+			varying float v_end_layer;
+
+			void main() {
+				v_t = a_t;
+				v_start_layer = u_start_layer;
+				v_end_layer = u_end_layer;
+
+				vec4 screen_space = u_projection * u_model_view * vec4(a_position*vec2(1, -1), -0.75-0.25*((u_start_layer+a_t*(u_end_layer-u_start_layer))/2.0), 1);
+
+				if(u_stretch) {
+					screen_space[0] *= 1.0+(1.0-cos(min(3.14/2.0, abs(1.0/max(1.0, u_ratio)*screen_space[0]/screen_space[3])/1.75)));
+					screen_space[1] *= 1.0+(1.0-cos(min(3.14/2.0, abs(    min(1.0, u_ratio)*screen_space[1]/screen_space[3])/1.75)));
+				}
+
+				gl_Position = screen_space;
+			}
+		</script>
+<!--}}}-->
+
+<!--{{{ connection_fragment_shader-->
+		<script id="connection_fragment_shader" type="x-shader/x-fragment">
+			precision mediump float;
+
+			uniform sampler2D u_sampler;
+			uniform float u_cur_layer;
+			uniform float u_length;
+			uniform float u_time;
+
+			varying float v_t;
+			varying float v_start_layer;
+			varying float v_end_layer;
+
+			float layer_opacity(float layer) {
+				float opacity = (u_cur_layer-layer)+3.0;
+				if(opacity > 3.0) opacity -= 3.0;
+				opacity = max(0.0, abs(3.0/2.0-opacity)-(3.0/2.0-1.0));
+				return opacity;
+			}
+
+			void main() {
+				gl_FragColor = texture2D(u_sampler, vec2(7.5*u_length*(v_t+u_time/u_length/7.5), 0.0));
+				float start_opacity = layer_opacity(v_start_layer);
+				float end_opacity = layer_opacity(v_end_layer);
+				float opacity = (v_start_layer == v_end_layer)
+					? start_opacity
+					: max(0.0, max((1.0-v_t)*start_opacity, v_t*end_opacity))
+				;
+				gl_FragColor[3] = 0.35+0.65*opacity;
+			}
+		</script>
+<!--}}}-->
+
 <!--{{{ solution_vertex_shader-->
 		<script id="solution_vertex_shader" type="x-shader/x-vertex">
 			attribute vec2 a_position;
 			attribute vec2 a_texture_coords;
+
 			uniform float u_layer;
 			uniform bool u_stretch;
-
 			uniform float u_ratio;
 			uniform mat4 u_projection;
 			uniform mat4 u_model_view;
@@ -1101,17 +1382,18 @@
 			varying vec2 v_texture_coords;
 
 			void main() {
+				v_texture_coords = a_texture_coords;
+
 				// 0..1 -> -1..1
 				vec2 clip_space = (a_position*2.0)-1.0;
 				vec4 screen_space = u_projection * u_model_view * vec4(clip_space*vec2(1, -1), -0.75-0.25*(u_layer/2.0), 1);
 
 				if(u_stretch) {
-					screen_space[0] *= 1.0+(1.0-cos(min(3.14/2.0, abs(1.0/max(1.0, u_ratio)*screen_space[0]/screen_space[3, 3])/1.75)));
-					screen_space[1] *= 1.0+(1.0-cos(min(3.14/2.0, abs(    min(1.0, u_ratio)*screen_space[1]/screen_space[3, 3])/1.75)));
+					screen_space[0] *= 1.0+(1.0-cos(min(3.14/2.0, abs(1.0/max(1.0, u_ratio)*screen_space[0]/screen_space[3])/1.75)));
+					screen_space[1] *= 1.0+(1.0-cos(min(3.14/2.0, abs(    min(1.0, u_ratio)*screen_space[1]/screen_space[3])/1.75)));
 				}
 
 				gl_Position = screen_space;
-				v_texture_coords = a_texture_coords;
 			}
 		</script>
 <!--}}}-->
@@ -1133,23 +1415,23 @@
 <!--{{{ error_line_vertex_shader-->
 		<script id="error_line_vertex_shader" type="x-shader/x-vertex">
 			attribute vec2 a_position;
+
 			uniform float u_layer;
 			uniform bool u_stretch;
-
 			uniform float u_ratio;
 			uniform mat4 u_projection;
 			uniform mat4 u_model_view;
 
-			varying vec2 f_position;
+			varying vec2 v_position;
 
 			void main() {
-				f_position = a_position;
+				v_position = a_position;
 
 				vec4 screen_space = u_projection * u_model_view * vec4(a_position*vec2(1, -1), -0.75-0.25*(u_layer/2.0), 1);
 
 				if(u_stretch) {
-					screen_space[0] *= 1.0+(1.0-cos(min(3.14/2.0, abs(1.0/max(1.0, u_ratio)*screen_space[0]/screen_space[3, 3])/1.75)));
-					screen_space[1] *= 1.0+(1.0-cos(min(3.14/2.0, abs(    min(1.0, u_ratio)*screen_space[1]/screen_space[3, 3])/1.75)));
+					screen_space[0] *= 1.0+(1.0-cos(min(3.14/2.0, abs(1.0/max(1.0, u_ratio)*screen_space[0]/screen_space[3])/1.75)));
+					screen_space[1] *= 1.0+(1.0-cos(min(3.14/2.0, abs(    min(1.0, u_ratio)*screen_space[1]/screen_space[3])/1.75)));
 				}
 
 				gl_Position = screen_space;
@@ -1164,10 +1446,10 @@
 			uniform vec4 u_color;
 			uniform float u_progress;
 
-			varying vec2 f_position;
+			varying vec2 v_position;
 
 			void main() {
-				if(f_position.x > 0.5-cos(3.1416*u_progress)/2.0) {
+				if(v_position.x > 0.5-cos(3.1416*u_progress)/2.0) {
 					discard;
 					return;
 				}
