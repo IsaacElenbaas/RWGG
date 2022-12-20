@@ -54,6 +54,7 @@
 				position: absolute;
 				right: 0;
 				object-fit: contain;
+				max-width: calc(100% - 2 * (2em + 0.3em));
 				height: 15%;
 				margin: 2em;
 				border: 0.3em solid black;
@@ -198,10 +199,14 @@
 				document.getElementById("settings").style.removeProperty("display");
 			}
 			function expand_hint() {
-				if(!document.getElementById("hint").style.height.startsWith("calc"))
+				if(!document.getElementById("hint").style.height.startsWith("calc")) {
 					document.getElementById("hint").style.height = "calc(100% - 2 * (2em + 0.3em))";
-				else
+					document.getElementById("hint").style.border = "0px solid black";
+				}
+				else {
 					document.getElementById("hint").style.removeProperty("height");
+					document.getElementById("hint").style.removeProperty("border");
+				}
 			}
 	/*}}}*/
 
