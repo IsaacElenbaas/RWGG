@@ -134,6 +134,7 @@
 		<script type="application/javascript">
 			let test_hint_selection = false;
 			let settings = { "difficulty": 5, "dev": false, "color": false, "stretch": true, "scroll_move": false };
+			let last_dev = false;
 
 			const step = 20; // pixels per tile
 			const lobby = (new URLSearchParams(window.location.search)).get("lobby");
@@ -172,6 +173,17 @@
 				image.image.onload = load_round.bind(image.image, rooms[round]);
 				image.image.src = "./Merged Screenshots/" + rooms[round].region + "/" + rooms[round].name + ".png";
 				settings["dev"] = document.getElementById("dev").checked;
+				if(settings["dev"] != last_dev) {
+					last_dev = settings["dev"];
+					for(let i = 0; i < connections.length; i++) {
+						connections[i].initialized = false;
+					}
+					let load = function(i) {
+						connections[i].init();
+						if(i+1 < connections.length) setTimeout(load, 1, i+1);
+					}
+					load(0);
+				}
 				settings["color"] = document.getElementById("color").checked;
 				settings["stretch"] = document.getElementById("stretch").checked;
 				settings["scroll_move"] = document.getElementById("scroll_move").checked;
@@ -1138,7 +1150,6 @@
 					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(connection_t_data), gl.STATIC_DRAW);
 					delete(connection_data);
 					delete(connection_t_data);
-					delete(this.data);
 					this.initialized = true;
 				}
 		/*}}}*/
