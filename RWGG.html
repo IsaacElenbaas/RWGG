@@ -2,6 +2,7 @@
 
 <html>
 	<head>
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
 <!--{{{ style-->
 		<style>
@@ -13,7 +14,6 @@
 				transition: 0.2s;
 			}
 			body {
-				overflow: hidden;
 				margin: 0px;
 			}
 			table {
@@ -23,10 +23,13 @@
 				position: absolute;
 				left: 0;
 				top: 0;
-				width: 100vw;
-				height: 100vh;
+				overflow-x: hidden;
+				min-width: 100vw;
+				min-height: 100vh;
+				width: 100%;
+				height: 100%;
 			}
-			.splash {
+			body, .splash {
 				background-color: black;
 			}
 			.splash>* {
@@ -133,7 +136,7 @@
 <!--{{{ script-->
 		<script type="application/javascript">
 			let test_hint_selection = false;
-			let settings = { "difficulty": 5, "dev": false, "color": false, "stretch": true, "scroll_move": false };
+			let settings = { "difficulty": 5, "dev": false, "color": false, "stretch": true, "zoom_move": false };
 			let last_dev = false;
 
 			const step = 20; // pixels per tile
@@ -159,7 +162,7 @@
 	/*}}}*/
 
 	/*{{{ onclicks*/
-			let loading = false;
+			let loading = true;
 			function play() {
 				loading = true;
 				document.getElementById("loading_hint").style.display = "unset";
@@ -186,11 +189,12 @@
 				}
 				settings["color"] = document.getElementById("color").checked;
 				settings["stretch"] = document.getElementById("stretch").checked;
-				settings["scroll_move"] = document.getElementById("scroll_move").checked;
+				settings["zoom_move"] = document.getElementById("zoom_move").checked;
 				document.getElementById("settings").style.display = "none";
 				guessed = false;
 			}
 			function show_settings() {
+				loading = true;
 				document.getElementById("settings").style.removeProperty("display");
 			}
 			function expand_hint() {
@@ -217,6 +221,27 @@
 			let guess_coords = null;
 			let showing_guess = false;
 
+			function guess() {
+				if(!guessed) {
+					let ratio = window.innerHeight/window.innerWidth;
+					guess_coords = [x, -y];
+					let sol_coords = room_coords(solution.room).slice();
+					sol_coords[0] += solution.room.o_x/35;
+					sol_coords[1] += solution.room.o_y/35;
+					sol_coords[0] += solution.hint_x/step/35;
+					sol_coords[1] += solution.hint_y/step/35;
+					let dx = sol_coords[0]-guess_coords[0];
+					let dy = sol_coords[1]-guess_coords[1];
+					target_x =  (guess_coords[0]+sol_coords[0])/2;
+					target_y = -(guess_coords[1]+sol_coords[1])/2;
+					target_zoom = Math.max(zoom, 2/3*Math.max(Math.abs(guess_coords[0]-sol_coords[0]), Math.abs(guess_coords[1]-sol_coords[1]))+5);
+					target_layer = solution.room.layer;
+					error_line_progress = 0;
+					guessed = true;
+					showing_guess = true;
+				}
+				else play();
+			}
 			document.onkeydown = function(e) {
 				if(loading) return;
 				switch(e.keyCode) {
@@ -258,25 +283,7 @@
 							target_zoom = zoom;
 							showing_guess = false;
 						}
-						if(!guessed) {
-							let ratio = window.innerHeight/window.innerWidth;
-							guess_coords = [x, -y];
-							let sol_coords = room_coords(solution.room).slice();
-							sol_coords[0] += solution.room.o_x/35;
-							sol_coords[1] += solution.room.o_y/35;
-							sol_coords[0] += solution.hint_x/step/35;
-							sol_coords[1] += solution.hint_y/step/35;
-							let dx = sol_coords[0]-guess_coords[0];
-							let dy = sol_coords[1]-guess_coords[1];
-							target_x =  (guess_coords[0]+sol_coords[0])/2;
-							target_y = -(guess_coords[1]+sol_coords[1])/2;
-							target_zoom = Math.max(zoom, 2/3*Math.max(Math.abs(guess_coords[0]-sol_coords[0]), Math.abs(guess_coords[1]-sol_coords[1]))+5);
-							target_layer = solution.room.layer;
-							error_line_progress = 0;
-							guessed = true;
-							showing_guess = true;
-						}
-						else play();
+						guess();
 						break;
 					case 65: // a
 					case 37: // left arrow
@@ -296,13 +303,13 @@
 						break;
 				}
 			}
-			addEventListener("wheel", function(e) {
+			document.onwheel = function(e) {
 				if(loading) return;
 				if(!showing_guess) {
 					// should keep point under cursor at same place on screen but doesn't work
 					// feels decent so not bothering at the moment
 					let new_zoom = Math.min(300, Math.max(2, zoom*(1+(e.deltaY/60)/5)));
-					if(settings["scroll_move"] && zoom !== 2) {
+					if(settings["zoom_move"] && zoom !== 2) {
 						let ratio = window.innerHeight/window.innerWidth;
 						let target_x = 2*(e.x-window.innerWidth /2)/window.innerWidth;
 						x += (zoom-new_zoom)*target_x/(1+(1-Math.cos(Math.min(3.14/2.0, Math.abs(  Math.min(1, ratio)*target_x)/1.75))))/   Math.min(1, ratio);
@@ -310,6 +317,60 @@
 						y += (zoom-new_zoom)*target_y/(1+(1-Math.cos(Math.min(3.14/2.0, Math.abs(1/Math.max(1, ratio)*target_y)/1.75))))/(1/Math.max(1, ratio));
 					}
 					zoom = new_zoom;
+				}
+			};
+			let tap_start;
+			let drag_start;
+			let drag;
+			let pinch_ozoom;
+			let pinch_odist = 0;
+			document.addEventListener("DOMContentLoaded", function() {
+				document.getElementById("canvas").addEventListener("touchstart", function(e) {
+					e.preventDefault();
+				}, { passive: false });
+				document.getElementById("canvas").ontouchstart = function(e) {
+					if(e.targetTouches.length === 1) {
+						pinch_odist = 0;
+						tap_start = e.timeStamp;
+						drag_start = [e.targetTouches[0].pageX, e.targetTouches[0].pageY];
+						drag = false;
+					}
+					else {
+						tap_start = 0;
+						drag_start = [NaN, NaN];
+					}
+				};
+				document.getElementById("canvas").ontouchmove = function(e) {
+					if(e.targetTouches.length === 1) {
+						pinch_odist = 0;
+						if((drag && !isNaN(drag_start[0])) || Math.hypot(e.changedTouches[0].pageX-drag_start[0], e.changedTouches[0].pageY-drag_start[1]) > 0.25*72*window.devicePixelRatio) {
+							drag = true;
+							let ratio = window.innerHeight/window.innerWidth;
+							x -= 1.5*((e.changedTouches[0].pageX-drag_start[0])/Math.min(window.innerWidth, window.innerHeight))*zoom;
+							y -= 1.5*((e.changedTouches[0].pageY-drag_start[1])/Math.min(window.innerWidth, window.innerHeight))*zoom;
+							drag_start[0] = e.changedTouches[0].pageX;
+							drag_start[1] = e.changedTouches[0].pageY;
+						}
+					}
+					if(e.targetTouches.length === 2) {
+						if(pinch_odist === 0) {
+							pinch_ozoom = zoom;
+							pinch_odist = Math.hypot(e.targetTouches[1].pageX-e.targetTouches[0].pageX, e.targetTouches[1].pageY-e.targetTouches[0].pageY);
+						}
+						else {
+							let new_zoom = pinch_ozoom*(pinch_odist/Math.hypot(e.targetTouches[1].pageX-e.targetTouches[0].pageX, e.targetTouches[1].pageY-e.targetTouches[0].pageY));
+							// TODO: move zoom moving into a function and do here? (and fix it)
+							zoom = Math.min(300, Math.max(2, new_zoom));
+						}
+					}
+				};
+				document.getElementById("canvas").ontouchend = function(e) {
+					if(tap_start != 0 && !drag) {
+						if(e.timeStamp-tap_start < 150)
+							target_layer = (target_layer+1)%3;
+						else if(e.timeStamp-tap_start > 300)
+							guess();
+					}
 				}
 			});
 	/*}}}*/
@@ -654,11 +715,11 @@
 				display(0);
 			}
 			if(lobby === null) {
-				document.addEventListener("DOMContentLoaded", function(event) {
+				document.addEventListener("DOMContentLoaded", function(e) {
 					document.getElementById("wait_lobby").remove();
 				});
 			}
-			document.addEventListener("DOMContentLoaded", function(event) {
+			document.addEventListener("DOMContentLoaded", function(e) {
 				document.getElementById("js_splash").remove();
 				main();
 			});
@@ -1101,7 +1162,7 @@
 						room_coords(end_room)[0]-end_room.w/35+2*parseInt(data[4])/35,
 						room_coords(end_room)[1]-end_room.h/35+2*parseInt(data[5])/35
 					];
-					this.length = Math.sqrt(Math.pow(this.end[0]-this.start[0], 2)+Math.pow(this.end[1]-this.start[1], 2));
+					this.length = Math.hypot(this.end[0]-this.start[0], this.end[1]-this.start[1]);
 					this.layer_start = start_room.layer;
 					this.layer_end = end_room.layer;
 					data[6] = parseInt(data[6]);
@@ -1472,6 +1533,9 @@
 
 	</head>
 	<body>
+		<span style="position:absolute; bottom:1em; right:1em;">
+			<a href="https://github.com/IsaacElenbaas/RWGG">Rain World GeoGuesser</a> by <a href="https://github.com/IsaacElenbaas">Isaac Elenbaas</a>
+		</span>
 		<span id="loading_hint" class="splash" style="display:none; opacity:0.75"><h1 style="opacity:1">Generating hint. . .</h1></span>
 		<span id="wait_lobby"   class="splash"><h1>Connecting to lobby. . .</h1></span>
 		<span id="js_splash"    class="splash"><h1>Please enable JavaScript</h1></span>
@@ -1485,14 +1549,11 @@
 
 	<!--{{{ left half-->
 				<span style="display:inline-block; width:50%; float:left;">
-					WASD, arrow keys, and/or optionally scrolling to move<br />
-					Scrolling to zoom<br />
-					Space to change layers<br />
-					R to reveal solution and then R again to start a new round<br />
-					Loading a round may take a moment, wait for hint in upper right<br />
+					WASD, arrow keys, optionally zoom (not mobile), and/or drag (mobile) to move<br />
+					Scroll or pinch (mobile) to zoom<br />
+					Space or tap (mobile) to change layers<br />
+					R or hold (mobile) to guess, repeat to start the next round<br />
 					Click hint to expand it<br />
-					<br />
-					Trackpad/smartphone zooming/panning support will be added soonTM, sorry if this is unusable on your device<br />
 				</span>
 	<!--}}}-->
 
@@ -1542,11 +1603,11 @@
 						</tr>
 						<tr>
 							<td>
-								<span style="margin-right:0.5em">Scrolling moves:</span>
+								<span style="margin-right:0.5em">Zooming moves:</span>
 							</td>
 							<td>
 								<label class="check choice">
-									<input type="checkbox" id="scroll_move" name="scroll_move"><span></span><br>
+									<input type="checkbox" id="zoom_move" name="zoom_move"><span></span><br>
 								</label>
 							</td>
 						</tr>
@@ -1556,7 +1617,7 @@
 					<br />
 
 		<!--{{{ map type-->
-					<span style="display:inline-block; text-align:center;">
+					<span>
 						<span style="color:#4B4653; margin-right:0.5em;">Map type:</span>
 						<label class="text choice">
 							<input type="radio" id="in_game" name="map" value="in_game" checked="checked">
@@ -1579,10 +1640,6 @@
 	<!--}}}-->
 
 			</form>
-
-			<span style="position:absolute; bottom:1em; right:1em;">
-				<a href="https://github.com/IsaacElenbaas/RWGG">Rain World GeoGuesser</a> by <a href="https://github.com/IsaacElenbaas/">Isaac Elenbaas</a>
-			</span>
 		</span>
 <!--}}}-->
 
