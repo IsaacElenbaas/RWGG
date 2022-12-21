@@ -13,13 +13,18 @@
 				user-select: none;
 				transition: 0.2s;
 			}
+			*:focus {
+				outline: none;
+			}
 			body {
 				margin: 0px;
+				background-color: black;
 			}
 			table {
 				border: none;
 			}
 			.splash, #settings, #canvas {
+				background-color: black;
 				position: absolute;
 				left: 0;
 				top: 0;
@@ -29,8 +34,9 @@
 				width: 100%;
 				height: 100%;
 			}
-			body, .splash {
-				background-color: black;
+			.splash {
+				opacity: 0;
+				pointer-events: none;
 			}
 			.splash>* {
 				position: absolute;
@@ -62,15 +68,72 @@
 			}
 
 	/*{{{ settings*/
-			#settings>h1 {
+			#header {
 				text-align: center;
 				transform: scaleX(2) scaleY(2.5);
 				letter-spacing: 0.1em;
+				overflow: hidden;
+				margin-left: auto;
+				margin-right: auto;
+				width: 30%;
+			}
+			#arrows {
+				position: absolute;
+				margin: auto;
+				left: 0;
+				right: 0;
+				width: 90%;
+			}
+			/* 1024/0.90 */
+			@media (min-aspect-ratio: 1138/768) {
+				#arrows {
+					width: calc(1024/768*100vh);
+				}
+			}
+			#arrows>h1 {
+				position: absolute;
+				border: 0.1em solid;
+				transform: translateY(-0.1em);
+				border-radius: 0.25em;
+				border-color: #4B4653;
+				color: #4B4653;
+				font-weight: bold;
+				text-align: center;
+				line-height: 1.5em;
+				width: 1.5em;
+				height: 1.5em;
+			}
+			#arrows>h1:hover {
+				border-color: #EFEEF1;
+				color: #EFEEF1;
 			}
 			#settings>form {
-				width: 75%;
 				margin: auto;
 				margin-top: 5em;
+				width: 90%;
+			}
+			/* 1024/0.90 */
+			@media (min-aspect-ratio: 1138/768) {
+				#settings>form {
+					width: calc(1024/768*100vh);
+				}
+			}
+			.text_input {
+				display: table;
+				width: 100%;
+			}
+			.text_input>span:first-child {
+				display: table-cell;
+				white-space: nowrap;
+				padding-right: 0.5em;
+			}
+			#lobby, #name, #time_vote_container {
+				display: table-cell;
+				width: 100%;
+				border: 0.15em solid;
+				border-radius: 0.6em;
+				padding: 0.3em 0px 0.3em 0px;
+				text-align: center;
 			}
 			input[type="radio"], input[type="checkbox"] {
 				display: none;
@@ -110,7 +173,7 @@
 				margin-right: 0.5em;
 			}
 			label.text.choice>span {
-				width: 12.5em;
+				min-width: 10em;
 			}
 			label.choice>span>span {
 				display: inline-block;
@@ -141,7 +204,7 @@
 			let last_dev = false;
 
 			const step = 20; // pixels per tile
-			const lobby = (new URLSearchParams(window.location.search)).get("lobby");
+			let lobby = (new URLSearchParams(window.location.search)).get("lobby");
 			let image = {};
 
 	/*{{{ random(), random_perc()*/
@@ -164,9 +227,45 @@
 
 	/*{{{ onclicks*/
 			let loading = true;
+			let lobby_loading = (lobby !== null);
 			function play() {
-				loading = true;
-				document.getElementById("loading_hint").style.display = "unset";
+				if(document.getElementById("header").innerText !== "SINGLEPLAYER") {
+					let new_lobby = document.getElementById("lobby").innerText;
+					if(new_lobby.length === 0) {
+						document.getElementById("multi_error").innerText = "Lobby name cannot be empty!";
+						return;
+					}
+					else if(new_lobby.length > 20) {
+						document.getElementById("multi_error").innerText = "Lobby name cannot be >20 characters!";
+						return;
+					}
+					else if(document.getElementById("name").innerText.length > 20) {
+						document.getElementById("multi_error").innerText = "Name cannot be >20 characters!";
+						return;
+					}
+					document.getElementById("multi_error").innerText = "";
+					if(new_lobby != lobby) {
+						lobby = new_lobby;
+						let url = window.location.toString().replace(/\?.*$/, "") + "?lobby=" + lobby;
+						window.history.pushState(null, "", url);
+						window.history.replaceState(null, "", url);
+						lobby_loading = true;
+						document.getElementById("wait_lobby").style.opacity = "1";
+						document.getElementById("wait_lobby").style.pointerEvents = "unset";
+						return;
+					}
+				}
+				if(load_progress.loading !== 0) {
+					document.getElementById('loading_hint').style.opacity = "1";
+					document.getElementById('loading_hint').style.pointerEvents = "unset";
+					load_progress.callback(function() { play(); });
+					return;
+				}
+				// TODO: save random seed, reload here so people can change settings mid-round
+				document.getElementById("hint").style.display = "none";
+				document.getElementById("loading_hint").style.opacity = "1";
+				document.getElementById("loading_hint").style.pointerEvents = "unset";
+				document.getElementById("loading_hint").firstElementChild.innerText = (lobby === null) ? "Generating hint. . ." : "Waiting for everyone to generate hint. . ." ;
 				if(document.getElementById("monk").checked)
 					settings["difficulty"] = 15;
 				if(document.getElementById("survivor").checked)
@@ -192,7 +291,23 @@
 				settings["stretch"] = document.getElementById("stretch").checked;
 				settings["zoom_move"] = document.getElementById("zoom_move").checked;
 				document.getElementById("settings").style.display = "none";
-				guessed = false;
+				if(lobby === null) guessed = false;
+			}
+			function switch_modes() {
+				document.getElementById("transition").style.opacity = "1";
+				document.getElementById("transition").style.pointerEvents = "unset";
+				setTimeout(function() {
+					document.getElementById("transition").style.removeProperty("opacity");
+					document.getElementById("transition").style.removeProperty("pointer-events");
+					if(document.getElementById("header").innerText === "SINGLEPLAYER") {
+						document.getElementById("header").innerText = "MULTIPLAYER";
+						document.getElementById("hide_single").style.display = "unset";
+					}
+					else {
+						document.getElementById("header").innerText = "SINGLEPLAYER";
+						document.getElementById("hide_single").style.display = "none";
+					}
+				}, 500);
 			}
 			function show_settings() {
 				loading = true;
@@ -545,7 +660,8 @@
 					document.body.lastElementChild.style = "position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; z-index: 1;";
 					setTimeout(function() {
 						loading = false;
-						document.getElementById("loading_hint").style.display = "none";
+						document.getElementById("loading_hint").style.removeProperty("opacity");
+						document.getElementById("loading_hint").style.removeProperty("pointer-events");
 					}, 1);
 				}
 				else if(options.length > 0) {
@@ -583,7 +699,11 @@
 
 					setTimeout(function() {
 						loading = false;
-						document.getElementById("loading_hint").style.display = "none";
+						if(!lobby_loading) {
+							document.getElementById("hint").style.display = "unset";
+							document.getElementById("loading_hint").style.removeProperty("opacity");
+							document.getElementById("loading_hint").style.removeProperty("pointer-events");
+						}
 					}, 1);
 				}
 				else {
@@ -695,17 +815,17 @@
 				connection_texture = gl.createTexture();
 				gl.bindTexture(gl.TEXTURE_2D, connection_texture);
 				gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 8, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([
-					0,   0,   0,   255,
-					0,   0,   0,   255,
-					191, 191, 191, 255,
+					255, 255, 255, 0,
+					255, 255, 255, 0,
+					255, 255, 255, 191,
 					255, 255, 255, 255,
 					255, 255, 255, 255,
 					255, 255, 255, 255,
 					255, 255, 255, 255,
 					255, 255, 255, 255,
-					0,   0,   0,   255,
-					0,   0,   0,   255,
-					191, 191, 191, 255,
+					255, 255, 255, 0,
+					255, 255, 255, 0,
+					255, 255, 255, 191,
 					255, 255, 255, 255,
 					255, 255, 255, 255,
 					255, 255, 255, 255,
@@ -721,7 +841,8 @@
 			}
 			if(lobby === null) {
 				document.addEventListener("DOMContentLoaded", function(e) {
-					document.getElementById("wait_lobby").remove();
+					document.getElementById("wait_lobby").style.removeProperty("opacity");
+					document.getElementById("wait_lobby").style.removeProperty("pointer-events");
 				});
 			}
 			document.addEventListener("DOMContentLoaded", function(e) {
@@ -1440,7 +1561,7 @@
 					? start_opacity
 					: max(0.0, max((1.0-v_t)*start_opacity, v_t*end_opacity))
 				;
-				gl_FragColor[3] = 0.35+0.65*opacity;
+				gl_FragColor[3] *= 0.35+0.65*opacity;
 			}
 		</script>
 <!--}}}-->
@@ -1541,106 +1662,139 @@
 		<span style="position:absolute; bottom:1em; right:1em;">
 			<a href="https://github.com/IsaacElenbaas/RWGG">Rain World GeoGuesser</a> by <a href="https://github.com/IsaacElenbaas">Isaac Elenbaas</a>
 		</span>
-		<span id="loading_hint" class="splash" style="display:none; opacity:0.75"><h1 style="opacity:1">Generating hint. . .</h1></span>
-		<span id="wait_lobby"   class="splash"><h1>Connecting to lobby. . .</h1></span>
-		<span id="js_splash"    class="splash"><h1>Please enable JavaScript</h1></span>
+		<span id="transition"   class="splash"></span>
+		<span id="loading_hint" class="splash" style="background-color:rgba(0, 0, 0, 0.75);"><h1></h1></span>
+		<span id="wait_lobby"   class="splash" style="opacity:1"><h1>Connecting to lobby. . .</h1></span>
+		<span id="js_splash"    class="splash" style="opacity:1"><h1>Please enable JavaScript</h1></span>
 
 <!--{{{ settings-->
-		<span id="settings" style="background-color:black; z-index:-1;">
+		<span id="settings" style="z-index:-1; opacity:1;">
 			<br />
 			<br />
-			<h1>SETTINGS</h1>
+			<span id="arrows">
+				<h1 style="left:0;  z-index:1;" onclick="switch_modes()">&lt;</h1>
+				<h1 style="right:0; z-index:1;" onclick="switch_modes()">&gt;</h1>
+			</span>
+			<h1 id="header">SINGLEPLAYER</h1>
 			<form>
 
 	<!--{{{ left half-->
-				<span style="display:inline-block; width:50%; float:left;">
-					WASD, arrow keys, optionally zoom (not mobile), and/or drag (mobile) to move<br />
-					Scroll or pinch (mobile) to zoom<br />
-					Space or tap (mobile) to change layers<br />
-					R or hold (mobile) to guess, repeat to start the next round<br />
-					Click hint to expand it<br />
+				<span style="display:block; width:47.5%; float:left;">
+					<span id="hide_single" style="display:none">
+						<span class="text_input">
+							<span>Lobby name: </span><span id="lobby" contenteditable></span>
+						</span>
+						<br />
+						<span class="text_input">
+							<span>Name (optional): </span><span id="name" contenteditable></span>
+						</span>
+						<br />
+						<span class="text_input">
+							<span>Time to guess (vote):</span>
+							<span id="time_vote_container" onclick="t=document.getElementById('time_vote'); t.focus(); s=window.getSelection(); s.collapse(s.focusNode, (event.offsetX < event.target.clientWidth/2) ? 0 : t.innerText.length);">
+								<span id="time_vote" style="display:inline-block" onkeypress="return (event.charCode === 8 || event.charCode === 46 || (event.charCode >= 48 && event.charCode <= 57))" onclick="event.stopPropagation()" contenteditable>60</span>s
+							</span>
+						</span>
+						<br />
+						<span id="multi_error" style="color:red"></span>
+						<br />
+					</span>
+					<span>
+						WASD, arrow keys, optionally zoom (not mobile), and/or drag (mobile) to move<br />
+						Scroll or pinch (mobile) to zoom<br />
+						Space or tap (mobile) to change layers<br />
+						R or hold (mobile) to guess, repeat to start the next round<br />
+						Click hint to expand it<br />
+					</span>
 				</span>
 	<!--}}}-->
 
 	<!--{{{ right half-->
-				<span style="display:inline-block; width:50%; float:left;">
+				<span style="display:block; width:47.5%; float:left; margin-left:5%">
+					<span style="margin:0 auto">
 
 		<!--{{{ difficulties-->
-					<span style="content:''; display:table; width:100%;">
-						<label class="choice" style="float:left; margin-right:1em;">
-							<input type="radio" id="monk" name="difficulty" value="monk">
-							<span><img src="./MultiplayerPortrait11.png" alt="Difficulty: Monk" draggable="false"></span>
-						</label>
-						<label class="choice" style="float:left; margin-right:1em;">
-							<input type="radio" id="survivor" name="difficulty" value="survivor" checked="checked">
-							<span><img src="./MultiplayerPortrait01.png" alt="Difficulty: Survivor" draggable="false"></span>
-						</label>
-						<label class="choice" style="float:left">
-							<input type="radio" id="hunter" name="difficulty" value="hunter">
-							<span><img src="./MultiplayerPortrait21.png" alt="Difficulty: Hunter" draggable="false"></span>
-						</label>
-					</span>
+						<span style="display:inline-block">
+							Difficulty:<br />
+							<label class="choice" style="float:left; margin-right:1em;">
+								<input type="radio" id="monk" name="difficulty" value="monk">
+								<span><img src="./MultiplayerPortrait11.png" alt="Difficulty: Monk" draggable="false"></span>
+							</label>
+							<label class="choice" style="float:left; margin-right:1em;">
+								<input type="radio" id="survivor" name="difficulty" value="survivor" checked="checked">
+								<span><img src="./MultiplayerPortrait01.png" alt="Difficulty: Survivor" draggable="false"></span>
+							</label>
+							<label class="choice" style="float:left">
+								<input type="radio" id="hunter" name="difficulty" value="hunter">
+								<span><img src="./MultiplayerPortrait21.png" alt="Difficulty: Hunter" draggable="false"></span>
+							</label>
+						</span>
 		<!--}}}-->
 
-					<br />
+						<br /><br />
 
 		<!--{{{ checkboxes-->
-					<table>
-						<tr>
-							<td>
-								<span style="margin-right:0.5em">Color:</span>
-							</td>
-							<td>
-								<label class="check choice">
-									<input type="checkbox" id="color" name="color"><span></span><br>
-								</label>
-							</td>
-						</tr>
-						<tr>
-							<td>
-								<span style="margin-right:0.5em">Stretching:</span>
-							</td>
-							<td>
-								<label class="check choice">
-									<input type="checkbox" id="stretch" name="stretch" checked="checked"><span></span><br>
-								</label>
-							</td>
-						</tr>
-						<tr>
-							<td>
-								<span style="margin-right:0.5em">Zooming moves:</span>
-							</td>
-							<td>
-								<label class="check choice">
-									<input type="checkbox" id="zoom_move" name="zoom_move"><span></span><br>
-								</label>
-							</td>
-						</tr>
-					</table>
+						<table style="display:inline-block">
+							<tr>
+								<td>
+									<span style="margin-right:0.5em">Color:</span>
+								</td>
+								<td>
+									<label class="check choice">
+										<input type="checkbox" id="color" name="color"><span></span><br>
+									</label>
+								</td>
+							</tr>
+							<tr>
+								<td>
+									<span style="margin-right:0.5em">Stretching:</span>
+								</td>
+								<td>
+									<label class="check choice">
+										<input type="checkbox" id="stretch" name="stretch" checked="checked"><span></span><br>
+									</label>
+								</td>
+							</tr>
+							<tr>
+								<td>
+									<span style="margin-right:0.5em">Zooming moves:</span>
+								</td>
+								<td>
+									<label class="check choice">
+										<input type="checkbox" id="zoom_move" name="zoom_move"><span></span><br>
+									</label>
+								</td>
+							</tr>
+						</table>
 		<!--}}}-->
 
-					<br />
+						<br /><br />
 
 		<!--{{{ map type-->
-					<span>
-						<span style="color:#4B4653; margin-right:0.5em;">Map type:</span>
-						<label class="text choice">
-							<input type="radio" id="in_game" name="map" value="in_game" checked="checked">
-							<span><span>IN-GAME</span></span>
-						</label>
-						<label class="text choice">
-							<input type="radio" id="dev" name="map" value="dev">
-							<span><span>DEV</span></span>
-						</label>
-					</span><br />
+						<span style="display:inline-block">
+							<span style="display:table">
+								<span style="padding-right:0.5em; display:table-cell; white-space:nowrap;">Map type:</span>
+								<span style="display:table-cell; width:100%">
+									<label class="text choice">
+										<input type="radio" id="in_game" name="map" value="in_game" checked="checked">
+										<span><span>IN-GAME</span></span>
+									</label>
+									<label class="text choice">
+										<input type="radio" id="dev" name="map" value="dev">
+										<span><span>DEV</span></span>
+									</label>
+								</span>
+							</span>
+						</span><br />
 		<!--}}}-->
 
-					<br />
+						<br /><br />
 
-					<label class="text choice" id="play" onclick="loading = true; document.getElementById('loading_hint').style.display = 'unset'; load_progress.callback(function() { play(); });">
-						<input type="radio" name="play" value="play" onclick="event.stopPropagation()">
-						<span><span>PLAY!</span></span>
-					</label>
+						<label class="text choice" id="play" onclick="play()">
+							<input type="radio" name="play" value="play" onclick="event.stopPropagation()">
+							<span><span>PLAY!</span></span>
+						</label>
+					</span>
 				</span>
 	<!--}}}-->
 
