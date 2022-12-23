@@ -410,7 +410,7 @@
 					sol_coords[1] += solution.hint_y/step/35;
 					let dx = sol_coords[0]-guess_coords[0];
 					let dy = sol_coords[1]-guess_coords[1];
-					ws.send("g|" + Math.hypot(dx, dy) + "\n");
+					if(lobby !== null) ws.send("g|" + Math.hypot(dx, dy) + "\n");
 					target_x =  (guess_coords[0]+sol_coords[0])/2;
 					target_y = -(guess_coords[1]+sol_coords[1])/2;
 					target_zoom = Math.max(zoom, 2/3*Math.max(Math.abs(guess_coords[0]-sol_coords[0]), Math.abs(guess_coords[1]-sol_coords[1]))+5);
@@ -767,8 +767,10 @@
 				else {
 					// retry if no hints for this room
 					// modulus here and nowhere else is because this may loop without shuffling rooms and resetting round to 0
-					round++;
-					ws.send("s|\n");
+					if(lobby !== null) {
+						round++;
+						ws.send("s|\n");
+					}
 					image.image = new Image();
 					image.image.onload = load_round.bind(image.image);
 					image.image.src = "./Merged Screenshots/" + rooms[round%rooms.length].region + "/" + rooms[round%rooms.length].name + ".png";
