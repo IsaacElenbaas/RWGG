@@ -11,7 +11,7 @@
 				font-weight: 500;
 				color: #EFEEF1;
 				user-select: none;
-				transition: 0.2s;
+				transition: 0.2s, display 0s;
 			}
 			*:focus {
 				outline: none;
@@ -34,7 +34,7 @@
 				width: 100%;
 				height: 100%;
 			}
-			.splash {
+			.splash, #settings {
 				opacity: 0;
 				pointer-events: none;
 			}
@@ -43,17 +43,6 @@
 				left: 50%;
 				top: 50%;
 				transform: translateX(-50%) translateY(-50%);
-			}
-			#show_settings {
-				position: absolute;
-				margin: 0.5em;
-				font-size: 4em;
-				text-align: center;
-				line-height: 1em;
-				width: 1em;
-				height: 1em;
-				background-color: black;
-				border-radius: 0.15em;
 			}
 			#hint {
 				image-rendering: pixelated;
@@ -66,9 +55,37 @@
 				border: 0.3em solid black;
 				border-radius: 0.6em;
 			}
+			#timer {
+				position: absolute;
+				left: 0;
+				right: 0;
+				top: 1em;
+			}
+			#show_settings {
+				margin: 0.5em;
+				font-size: 4em;
+				text-align: center;
+				line-height: 1em;
+				width: 1em;
+				height: 1em;
+				background-color: black;
+				border-radius: 0.15em;
+			}
+			#clients_container {
+				margin-left: 2em;
+				max-width: 30vw;
+				max-height: 60vh;
+				border-radius: 0.5em;
+			}
+			#clients {
+				background-color: rgba(127, 127, 127, 0.35);
+			}
+			#clients td {
+				padding: 0.25em;
+			}
 
 	/*{{{ settings*/
-			#header {
+			#timer, #header {
 				text-align: center;
 				transform: scaleX(2) scaleY(2.5);
 				letter-spacing: 0.1em;
@@ -210,71 +227,31 @@
 	/*{{{ random(), random_perc()*/
 			function simplerng(seed) {
 				return function() {
-					if(seed === null) return Math.floor(Math.random()*Math.fround(Number.MAX_SAFE_INTEGER));
+					if(seed === null) return Math.floor(Math.random()*4294967295);
 					else {
 						seed ^= seed << 13;
 						seed ^= seed >> 17;
 						seed ^= seed << 5;
-						seed = Math.fround(Math.abs(seed));
+						seed = Math.abs(Math.fround(seed));
 						return seed;
 					}
 				}
 			}
 			let random;
-			function random_perc() { return random()/Math.fround(Number.MAX_SAFE_INTEGER); }
-			if(lobby === null) random = simplerng(lobby);
+			function random_perc() { return random()/4294967295; }
+			if(lobby === null) random = simplerng(null);
 	/*}}}*/
 
 	/*{{{ onclicks*/
 			let loading = true;
 			let lobby_loading = (lobby !== null);
 			function play() {
-				if(document.getElementById("header").innerText !== "SINGLEPLAYER") {
-					let new_lobby = document.getElementById("lobby").innerText;
-					if(new_lobby.length === 0) {
-						document.getElementById("multi_error").innerText = "Lobby name cannot be empty!";
-						return;
-					}
-					else if(new_lobby.length > 20) {
-						document.getElementById("multi_error").innerText = "Lobby name cannot be >20 characters!";
-						return;
-					}
-					else if(document.getElementById("name").innerText.length > 20) {
-						document.getElementById("multi_error").innerText = "Name cannot be >20 characters!";
-						return;
-					}
-					document.getElementById("multi_error").innerText = "";
-					if(new_lobby != lobby) {
-						lobby = new_lobby;
-						let url = window.location.toString().replace(/\?.*$/, "") + "?lobby=" + lobby;
-						window.history.pushState(null, "", url);
-						window.history.replaceState(null, "", url);
-						lobby_loading = true;
-						document.getElementById("wait_lobby").style.opacity = "1";
-						document.getElementById("wait_lobby").style.pointerEvents = "unset";
-						return;
-					}
-				}
-				if(load_progress.loading !== 0) {
-					document.getElementById('loading_hint').style.opacity = "1";
-					document.getElementById('loading_hint').style.pointerEvents = "unset";
-					load_progress.callback(function() { play(); });
-					return;
-				}
-				// TODO: save random seed, reload here so people can change settings mid-round
-				document.getElementById("hint").style.display = "none";
-				document.getElementById("loading_hint").style.opacity = "1";
-				document.getElementById("loading_hint").style.pointerEvents = "unset";
-				document.getElementById("loading_hint").firstElementChild.innerText = (lobby === null) ? "Generating hint. . ." : "Waiting for everyone to generate hint. . ." ;
 				if(document.getElementById("monk").checked)
 					settings["difficulty"] = 15;
 				if(document.getElementById("survivor").checked)
 					settings["difficulty"] = 10;
 				if(document.getElementById("hunter").checked)
 					settings["difficulty"] = 5;
-				image.image = new Image();
-				image.image.onload = load_round.bind(image.image, rooms[round]);
-				image.image.src = "./Merged Screenshots/" + rooms[round].region + "/" + rooms[round].name + ".png";
 				settings["dev"] = document.getElementById("dev").checked;
 				if(settings["dev"] != last_dev) {
 					last_dev = settings["dev"];
@@ -290,13 +267,81 @@
 				settings["color"] = document.getElementById("color").checked;
 				settings["stretch"] = document.getElementById("stretch").checked;
 				settings["zoom_move"] = document.getElementById("zoom_move").checked;
-				document.getElementById("settings").style.display = "none";
-				if(lobby === null) guessed = false;
+
+				if(document.getElementById("header").innerText === "SINGLEPLAYER") {
+					document.getElementById("loading_hint").style.opacity = "1";
+					document.getElementById("loading_hint").style.pointerEvents = "unset";
+					if(lobby !== null) {
+						ws.send("ll|\n");
+						lobby = null;
+						document.getElementById("loading_hint").firstElementChild.innerText = "Generating hint. . .";
+						clearInterval(timer);
+						document.getElementById("timer").style.display = "none";
+						document.getElementById("clients").style.display = "none";
+						let url = window.location.toString().replace(/\?.*$/, "");
+						window.history.pushState(null, "", url);
+						window.history.replaceState(null, "", url);
+					}
+				}
+				else {
+					document.getElementById("loading_hint").firstElementChild.innerText = "Waiting for everyone to generate hint. . .";
+					document.getElementById("timer").style.removeProperty("display");
+					document.getElementById("clients").style.removeProperty("display");
+					let new_lobby = document.getElementById("lobby").innerText;
+					if(new_lobby.length === 0) {
+						document.getElementById("multi_error").innerText = "Lobby name cannot be empty!";
+						return; }
+					else if(new_lobby.length > 20) {
+						document.getElementById("multi_error").innerText = "Lobby name cannot be >20 characters!";
+						return; }
+					else if(document.getElementById("name").innerText.length > 20) {
+						document.getElementById("multi_error").innerText = "Name cannot be >20 characters!";
+						return; }
+					document.getElementById("multi_error").innerText = "";
+					if(new_lobby !== lobby) {
+						lobby = new_lobby;
+						document.getElementById("clients").innerHTML = "<tr><td>Name</td><td>Hint Size</td><td>Avg</td><td>Dist</td></tr>";
+						// lobby is faked to null if loading straight to a lobby
+						// without this an unnecessary history entry is added each refresh
+						if(new_lobby !== (new URLSearchParams(window.location.search)).get("lobby")) {
+							let url = window.location.toString().replace(/\?.*$/, "") + "?lobby=" + lobby;
+							window.history.pushState(null, "", url);
+							window.history.replaceState(null, "", url);
+						}
+						document.getElementById("loading").style.opacity = "1";
+						document.getElementById("loading").style.pointerEvents = "unset";
+					}
+					lobby_loading = true;
+					if(load_progress.loading === 0) {
+						let message  = "n|"  + document.getElementById("name").innerText + "\n";
+						    message += "tv|" + document.getElementById("time_vote").innerText + "\n";
+						    message += "d|"  + settings["difficulty"] + "\n";
+						    message += "lj|" + lobby + "\n";
+						let connect = function() { ws.send(message); }
+						if(ws.readyState === 1) connect();
+						else ws.onopen = connect;
+					}
+				}
+
+				document.getElementById("settings").style.removeProperty("opacity");
+				document.getElementById("settings").style.removeProperty("pointer-events");
+				if(load_progress.loading !== 0) {
+					document.getElementById("loading").style.opacity = "1";
+					document.getElementById("loading").style.pointerEvents = "unset";
+					load_progress.callback(function() { play(); });
+					return;
+				}
+				if(lobby === null) {
+					image.image = new Image();
+					image.image.onload = load_round.bind(image.image);
+					image.image.src = "./Merged Screenshots/" + rooms[round].region + "/" + rooms[round].name + ".png";
+					guessed = false;
+				}
 			}
-			function switch_modes() {
+			function switch_modes(delay) {
 				document.getElementById("transition").style.opacity = "1";
 				document.getElementById("transition").style.pointerEvents = "unset";
-				setTimeout(function() {
+				let later = function() {
 					document.getElementById("transition").style.removeProperty("opacity");
 					document.getElementById("transition").style.removeProperty("pointer-events");
 					if(document.getElementById("header").innerText === "SINGLEPLAYER") {
@@ -307,11 +352,14 @@
 						document.getElementById("header").innerText = "SINGLEPLAYER";
 						document.getElementById("hide_single").style.display = "none";
 					}
-				}, 500);
+				}
+				if(delay) setTimeout(later, 500);
+				else later();
 			}
 			function show_settings() {
 				loading = true;
-				document.getElementById("settings").style.removeProperty("display");
+				document.getElementById("settings").style.opacity = "1";
+				document.getElementById("settings").style.pointerEvents = "unset";
 			}
 			function expand_hint() {
 				if(!document.getElementById("hint").style.height.startsWith("calc")) {
@@ -321,6 +369,16 @@
 				else {
 					document.getElementById("hint").style.removeProperty("height");
 					document.getElementById("hint").style.removeProperty("border");
+				}
+			}
+			function contract_clients() {
+				if(!document.getElementById("clients_container").style.maxWidth.endsWith("em")) {
+					document.getElementById("clients_container").style.maxWidth  = "4em";
+					document.getElementById("clients_container").style.maxHeight = "4em";
+				}
+				else {
+					document.getElementById("clients_container").style.maxWidth  = "30vw";
+					document.getElementById("clients_container").style.maxHeight = "60vh";
 				}
 			}
 	/*}}}*/
@@ -352,6 +410,7 @@
 					sol_coords[1] += solution.hint_y/step/35;
 					let dx = sol_coords[0]-guess_coords[0];
 					let dy = sol_coords[1]-guess_coords[1];
+					ws.send("g|" + Math.hypot(dx, dy) + "\n");
 					target_x =  (guess_coords[0]+sol_coords[0])/2;
 					target_y = -(guess_coords[1]+sol_coords[1])/2;
 					target_zoom = Math.max(zoom, 2/3*Math.max(Math.abs(guess_coords[0]-sol_coords[0]), Math.abs(guess_coords[1]-sol_coords[1]))+5);
@@ -360,10 +419,10 @@
 					guessed = true;
 					showing_guess = true;
 				}
-				else play();
+				else if(lobby === null) play();
 			}
 			document.onkeydown = function(e) {
-				if(loading) return;
+				if(loading || lobby_loading) return;
 				switch(e.keyCode) {
 					case 65: // a
 					case 37: // left arrow
@@ -386,17 +445,17 @@
 			document.onkeyup = function(e) {
 				switch(e.keyCode) {
 					case 32: // space
-						if(loading) return;
+						if(loading || lobby_loading) break;
 						if(showing_guess) break;
 						target_layer = (target_layer+1)%3;
 						if(test_hint_selection) {
 							image.image = new Image();
-							image.image.onload = load_round.bind(image.image, rooms[round]);
+							image.image.onload = load_round.bind(image.image);
 							image.image.src = "./Merged Screenshots/" + rooms[round].region + "/" + rooms[round].name + ".png";
 						}
 						break;
 					case 82: // r
-						if(loading) return;
+						if(loading || lobby_loading) break;
 						if(showing_guess) {
 							target_x = x;
 							target_y = y;
@@ -424,7 +483,7 @@
 				}
 			}
 			document.onwheel = function(e) {
-				if(loading) return;
+				if(loading || lobby_loading) return;
 				if(!showing_guess) {
 					// should keep point under cursor at same place on screen but doesn't work
 					// feels decent so not bothering at the moment
@@ -567,15 +626,18 @@
 			let round = 0;
 			let solution = null;
 
-			function load_round(room) {
-				round++;
-				if(round === rooms.length) {
-					round = 0;
-					for(let i = 0; i < rooms.length; i++) {
-						let j = Math.floor(random_perc()*(rooms.length-1));
-						let temp = rooms[j];
-						rooms[j] = rooms[i];
-						rooms[i] = temp;
+			function load_round() {
+				let room = rooms[round%rooms.length];
+				if(lobby === null) {
+					round++;
+					if(round === rooms.length) {
+						round = 0;
+						for(let i = 0; i < rooms.length; i++) {
+							let j = Math.floor(random_perc()*(rooms.length-1));
+							let temp = rooms[j];
+							rooms[j] = rooms[i];
+							rooms[i] = temp;
+						}
 					}
 				}
 				if(test_hint_selection && document.lastElementChild.tagName.toLowerCase === "img")
@@ -658,11 +720,9 @@
 					this.src = canvas.toDataURL();
 					document.body.appendChild(this);
 					document.body.lastElementChild.style = "position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; z-index: 1;";
-					setTimeout(function() {
-						loading = false;
-						document.getElementById("loading_hint").style.removeProperty("opacity");
-						document.getElementById("loading_hint").style.removeProperty("pointer-events");
-					}, 1);
+					loading = false;
+					document.getElementById("loading_hint").style.removeProperty("opacity");
+					document.getElementById("loading_hint").style.removeProperty("pointer-events");
 				}
 				else if(options.length > 0) {
 
@@ -697,20 +757,21 @@
 					document.getElementById("hint").src = canvas.toDataURL();
 		/*}}}*/
 
-					setTimeout(function() {
-						loading = false;
-						if(!lobby_loading) {
-							document.getElementById("hint").style.display = "unset";
-							document.getElementById("loading_hint").style.removeProperty("opacity");
-							document.getElementById("loading_hint").style.removeProperty("pointer-events");
-						}
-					}, 1);
+					loading = false;
+					if(lobby === null) {
+						document.getElementById("loading_hint").style.removeProperty("opacity");
+						document.getElementById("loading_hint").style.removeProperty("pointer-events");
+					}
+					else ws.send("l|\n");
 				}
 				else {
 					// retry if no hints for this room
+					// modulus here and nowhere else is because this may loop without shuffling rooms and resetting round to 0
+					round++;
+					ws.send("s|\n");
 					image.image = new Image();
-					image.image.onload = load_round.bind(image.image, rooms[round]);
-					image.image.src = "./Merged Screenshots/" + rooms[round].region + "/" + rooms[round].name + ".png";
+					image.image.onload = load_round.bind(image.image);
+					image.image.src = "./Merged Screenshots/" + rooms[round%rooms.length].region + "/" + rooms[round%rooms.length].name + ".png";
 				}
 			};
 	/*}}}*/
@@ -839,16 +900,131 @@
 
 				display(0);
 			}
-			if(lobby === null) {
-				document.addEventListener("DOMContentLoaded", function(e) {
-					document.getElementById("wait_lobby").style.removeProperty("opacity");
-					document.getElementById("wait_lobby").style.removeProperty("pointer-events");
-				});
-			}
 			document.addEventListener("DOMContentLoaded", function(e) {
 				document.getElementById("js_splash").remove();
 				main();
+				if(lobby === null) {
+					document.getElementById("loading").style.removeProperty("opacity");
+					document.getElementById("loading").style.removeProperty("pointer-events");
+				}
+				else {
+					switch_modes(false);
+					document.getElementById("lobby").innerText = lobby;
+					lobby = null;
+					play();
+				}
 			});
+	/*}}}*/
+
+	/*{{{ multiplayer*/
+		const ws = new WebSocket(
+			((window.location.protocol === "http:") ? "ws://" : "wss://") +
+		window.location.hostname);
+		const client_template = document.createElement("tr");
+		client_template.className = "client";
+		client_template.innerHTML = "<td class='name'></td><td class='difficulty'></td><td class='cum_dist'>0</td><td class='dist'>0</td>";
+		let timer;
+		ws.onmessage = function(e) {
+			let i = 0;
+			while(true) {
+				let j = e.data.indexOf("\n", i);
+				if(j === -1) break;
+				let line = e.data.substr(i, j-i).split("|");
+				switch(line[0]) {
+					case "ca":
+						let initial = false;
+						if(document.getElementById("clients").children.length === 1) initial = true;
+						for(let i = 0; i < parseInt(line[1]); i++) {
+							document.getElementById("clients").appendChild(client_template.cloneNode(true));
+						}
+						if(initial)
+							document.getElementById("clients").lastElementChild.querySelector(".name").style.color = "lightskyblue";
+						break;
+					case "cd":
+						document.getElementById("clients").children[parseInt(line[1])+1].remove();
+						break;
+					case "cn":
+						document.getElementById("clients").children[parseInt(line[1])+1].querySelector(".name").innerText = line[2];
+						break;
+					case "cs":
+						document.getElementById("clients").children[parseInt(line[1])+1].querySelector(".difficulty").innerText = line[2];
+						break;
+					case "cg":
+						let cum_dist_e = document.getElementById("clients").children[parseInt(line[1])+1].querySelector(".cum_dist");
+						let last_cum_dist = parseFloat(cum_dist_e.innerText);
+						cum_dist_e.innerText = (line[3] !== "Infinity") ? line[3] : "0";
+						cum_dist_e.style.color = (parseFloat(line[3]) <= last_cum_dist || last_cum_dist === 0) ? "lawngreen" : "red";
+						let dist_e = document.getElementById("clients").children[parseInt(line[1])+1].querySelector(".dist");
+						dist_e.innerText = line[2];
+						dist_e.style.color = (parseFloat(line[2]) < Math.hypot(48, 35)/35/2) ? "lawngreen" : "red";
+						break;
+					case "i":
+						load_progress.callback(function(seed) {
+							rooms.sort(function(a, b) { return a.name.localeCompare(b.name); });
+							random = simplerng(seed);
+							round = 0;
+							for(let i = 0; i < rooms.length; i++) {
+								let j = Math.floor(random_perc()*(rooms.length-1));
+								let temp = rooms[j];
+								rooms[j] = rooms[i];
+								rooms[i] = temp;
+							}
+							document.getElementById("loading").style.removeProperty("opacity");
+							document.getElementById("loading").style.removeProperty("pointer-events");
+						}.bind(null, parseInt(line[1])));
+						break;
+					case "r":
+						document.getElementById("hint").style.display = "none";
+						document.getElementById("loading_hint").style.opacity = "1";
+						document.getElementById("loading_hint").style.pointerEvents = "unset";
+						load_progress.callback(function(new_round, seed) {
+							let scores = document.getElementById("clients").querySelectorAll(".cum_dist, .dist");
+							for(let i = 0; i < scores.length; i++) {
+								scores[i].style.removeProperty("color");
+							}
+							// guessed will be incorrect if one changes settings after guessing but that is handled on server
+							guessed = false;
+							round = new_round;
+							random = simplerng(seed);
+							image.image = new Image();
+							image.image.onload = load_round.bind(image.image);
+							image.image.src = "./Merged Screenshots/" + rooms[round].region + "/" + rooms[round].name + ".png";
+						}.bind(null, parseInt(line[1]), parseInt(line[2])));
+						break;
+					case "co":
+						let clients = Array.from(document.getElementById("clients").querySelectorAll("tr.client"));
+						clients.sort(function(a, b) {
+							a = parseFloat(a.querySelector(".cum_dist").innerText);
+							if(a === 0) a = Infinity;
+							b = parseFloat(b.querySelector(".cum_dist").innerText);
+							if(b === 0) b = Infinity;
+							return (a > b) ? 1 : -1;
+						});
+						// this might cause a bunch of reflows but not doing so is effort
+						for(let i = 0; i < clients.length; i++) {
+							document.getElementById("clients").removeChild(clients[i]);
+						}
+						for(let i = 0; i < clients.length; i++) {
+							document.getElementById("clients").appendChild(clients[i]);
+						}
+						break;
+					case "s":
+						load_progress.callback(function() {
+							lobby_loading = false;
+							document.getElementById("hint").style.display = "unset";
+							document.getElementById("loading_hint").style.removeProperty("opacity");
+							document.getElementById("loading_hint").style.removeProperty("pointer-events");
+							document.getElementById("timer").innerText = line[1];
+							if(timer !== undefined) clearInterval(timer);
+							timer = setInterval(function() {
+								document.getElementById("timer").innerText = Math.max(0, parseInt(document.getElementById("timer").innerText)-1);
+							}, 1000);
+						});
+						break;
+				}
+				i = j+1;
+			}
+		}
 	/*}}}*/
 /*}}}*/
 
@@ -1664,16 +1840,16 @@
 		</span>
 		<span id="transition"   class="splash"></span>
 		<span id="loading_hint" class="splash" style="background-color:rgba(0, 0, 0, 0.75);"><h1></h1></span>
-		<span id="wait_lobby"   class="splash" style="opacity:1"><h1>Connecting to lobby. . .</h1></span>
+		<span id="loading"   class="splash" style="opacity:1"><h1>Loading. . .</h1></span>
 		<span id="js_splash"    class="splash" style="opacity:1"><h1>Please enable JavaScript</h1></span>
 
 <!--{{{ settings-->
-		<span id="settings" style="z-index:-1; opacity:1;">
+		<span id="settings" style="z-index:-1; opacity:1; pointer-events:unset;">
 			<br />
 			<br />
 			<span id="arrows">
-				<h1 style="left:0;  z-index:1;" onclick="switch_modes()">&lt;</h1>
-				<h1 style="right:0; z-index:1;" onclick="switch_modes()">&gt;</h1>
+				<h1 style="left:0;  z-index:1;" onclick="switch_modes(true)">&lt;</h1>
+				<h1 style="right:0; z-index:1;" onclick="switch_modes(true)">&gt;</h1>
 			</span>
 			<h1 id="header">SINGLEPLAYER</h1>
 			<form>
@@ -1682,17 +1858,17 @@
 				<span style="display:block; width:47.5%; float:left;">
 					<span id="hide_single" style="display:none">
 						<span class="text_input">
-							<span>Lobby name: </span><span id="lobby" contenteditable></span>
+							<span>Lobby name: </span><span id="lobby" onkeypress="return (event.keyCode === 8 || event.keyCode === 46 || String.fromCharCode(event.charCode).match(/[a-zA-Z0-9]/) !== null)" contenteditable>default</span>
 						</span>
 						<br />
 						<span class="text_input">
-							<span>Name (optional): </span><span id="name" contenteditable></span>
+							<span>Name (optional): </span><span id="name" onkeypress="return (event.keyCode === 8 || event.keyCode === 46 || String.fromCharCode(event.charCode).match(/[a-zA-Z0-9]/) !== null)" contenteditable></span>
 						</span>
 						<br />
 						<span class="text_input">
-							<span>Time to guess (vote):</span>
+							<span>Time to guess (vote, optional):</span>
 							<span id="time_vote_container" onclick="t=document.getElementById('time_vote'); t.focus(); s=window.getSelection(); s.collapse(s.focusNode, (event.offsetX < event.target.clientWidth/2) ? 0 : t.innerText.length);">
-								<span id="time_vote" style="display:inline-block" onkeypress="return (event.charCode === 8 || event.charCode === 46 || (event.charCode >= 48 && event.charCode <= 57))" onclick="event.stopPropagation()" contenteditable>60</span>s
+								<span id="time_vote" style="display:inline-block" onkeypress="return (event.keyCode === 8 || event.keyCode === 46 || String.fromCharCode(event.charCode).match(/[0-9]/) !== null)" onclick="event.stopPropagation()" contenteditable></span>s
 							</span>
 						</span>
 						<br />
@@ -1802,8 +1978,14 @@
 		</span>
 <!--}}}-->
 
-		<span id="show_settings" onclick="show_settings()" style="z-index:-2">&#9881;</span>
 		<img id="hint" onclick="expand_hint()" draggable="false" style="z-index:-2">
+		<h1 id="timer" style="z-index:-2"></h1>
+		<span style="position:absolute; z-index:-2;">
+			<span id="show_settings" style="display:inline-block" onclick="show_settings()">&#9881;</span><br />
+			<span id="clients_container" style="display:block; overflow:scroll;" onwheel="event.stopPropagation()" onclick="contract_clients()">
+				<table id="clients"></table>
+			</span>
+		</span>
 		<canvas id="canvas" style="z-index:-3"></canvas>
 	</body>
 </html>
