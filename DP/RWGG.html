@@ -1,5 +1,8 @@
 <!doctype html>
 
+<!-- Rooms only present for one slugcat are not always marked as such -->
+<!-- Because of this, all merged screenshots that don't exist in white must be symlinked there, which was done in RWMS -->
+
 <html>
 	<head>
 		<title>Rain World GeoGuesser</title>
@@ -243,6 +246,11 @@
 			if(lobby === null) random = simplerng(null);
 	/*}}}*/
 
+			function screenshot(room) {
+				//return "https://github.com/IsaacElenbaas/RWMS/raw/master/" + room.name.replace(/-.*$/, "") + "/" + room.region + "/" + room.name.replace(/^.*?-/, "") + ".png";
+				return "./RWMS/" + room.name.replace(/-.*$/, "") + "/" + room.region + "/" + room.name.replace(/^.*?-/, "") + ".png";
+			}
+
 	/*{{{ onclicks*/
 			let loading = true;
 			let lobby_loading = (lobby !== null);
@@ -288,7 +296,7 @@
 					document.getElementById("loading_hint").firstElementChild.innerText = "Waiting for everyone to generate hint. . .";
 					document.getElementById("timer").style.removeProperty("display");
 					document.getElementById("clients").style.removeProperty("display");
-					let new_lobby = document.getElementById("lobby").innerText;
+					let new_lobby = "DP-" + document.getElementById("lobby").innerText;
 					if(new_lobby.length === 0) {
 						document.getElementById("multi_error").innerText = "Lobby name cannot be empty!";
 						return; }
@@ -304,8 +312,8 @@
 						document.getElementById("clients").innerHTML = "<tr><td>Name</td><td>Hint Size</td><td>Avg</td><td>Dist</td></tr>";
 						// lobby is faked to null if loading straight to a lobby
 						// without this an unnecessary history entry is added each refresh
-						if(new_lobby !== (new URLSearchParams(window.location.search)).get("lobby")) {
-							let url = window.location.toString().replace(/\?.*$/, "") + "?lobby=" + lobby;
+						if(lobby.slice(3) !== (new URLSearchParams(window.location.search)).get("lobby")) {
+							let url = window.location.toString().replace(/\?.*$/, "") + "?lobby=" + lobby.slice(3);
 							window.history.pushState(null, "", url);
 							window.history.replaceState(null, "", url);
 						}
@@ -329,13 +337,18 @@
 				if(load_progress.loading !== 0) {
 					document.getElementById("loading").style.opacity = "1";
 					document.getElementById("loading").style.pointerEvents = "unset";
-					load_progress.callback(function() { play(); });
+					load_progress.callback(function() {
+						document.getElementById("loading_hint").firstElementChild.innerText = "Generating hint. . .";
+						document.getElementById("loading").style.removeProperty("opacity");
+						document.getElementById("loading").style.removeProperty("pointer-events");
+						play();
+					});
 					return;
 				}
 				if(lobby === null) {
 					image.image = new Image();
 					image.image.onload = load_round.bind(image.image);
-					image.image.src = "./Merged Screenshots/" + rooms[round].region + "/" + rooms[round].name + ".png";
+					image.image.src = screenshot(rooms[round]);
 					guessed = false;
 				}
 			}
@@ -385,10 +398,10 @@
 	/*}}}*/
 
 	/*{{{ input*/
-			let x = 7;
+			let x = 10;
 			let mx = [0, 0];
 			let target_x = x;
-			let y = 6.15;
+			let y = 4.5;
 			let my = [0, 0];
 			let target_y = y;
 			let zoom = 2;
@@ -452,7 +465,7 @@
 						if(test_hint_selection) {
 							image.image = new Image();
 							image.image.onload = load_round.bind(image.image);
-							image.image.src = "./Merged Screenshots/" + rooms[round].region + "/" + rooms[round].name + ".png";
+							image.image.src = screenshot(rooms[round]);
 						}
 						break;
 					case 82: // r
@@ -558,32 +571,63 @@
 	/*{{{ region "fact" functions*/
 		/*{{{ region_map/dev_coords(region)*/
 			region_map_coords = {
-				"CC": [ 1575,    1345],
-				"DS": [  550,    -450], // mildly arbitrary after GW finalized
-				"HI": [  880,     347],
-				"GW": [ 2787, 221-475], // preferred 2787, 221 to align with HI
-				"SI": [-1093,    1744], // preferred -1093, 1690 to align with LF and -522, 1744 to align with CC
-				"SU": [    0,       0],
-				"SH": [ 3950, -90+475], // preferred 3950, -90 to align with HI
-				"SL": [ 5400,    -550], // gave up on this having a decent location, so did Andrew and kip so it's fine
-				"LF": [-2148,     422],
-				"UW": [ 4310,    2050], // arbitrary after CC and SH finalized
-				"SB": [ -785,   -1230], // arbitrary after DS finalized
-				"SS": [5486,     3300]  // mildly arbitrary after UW finalized
+				"CC": [ 2700,   800],
+				"DS": [-1000, -2300],
+				"HI": [  970,   400],
+				"GW": [ 3800, -3450],
+				"SI": [ -920,  1715],
+				"SU": [    0,     0],
+				"SH": [ 5300,   -35],
+				"SL": [12000, -1500],
+				"LF": [-2210,   480],
+				"UW": [ 5800,  2000],
+				"SB": [-3308, -1550],
+				"SS": [ 6862,  3200],
+				"CL": [ 6500, -1900], // Saint      SH/FP (Silent Construct)
+				"DM": [11960,  2460], // Spear      LTTM
+				"HR": [-2150, -4300], // Saint      Rubicon
+				"LC": [ 7388,  5600], // Arti       Metropolis
+				"LM": [ 9305,   900], // Arti/Spear SL (Waterfront Facility)
+				"MS": [15000, -1950], //            Submerged Superstructure
+				"OE": [-7910, -1530], //            Outer Expanse
+				"RM": [ 9380,  3200], // Rivulet    FP (The Rot)
+				"UG": [ 1100, -2300], // Saint      DS (Undergrowth)
+				"VS": [ 1500, -1000]  //            Pipeyard
 			}
-			region_dev_coords = { // these are a mess, I did my best
-				"CC": [ 2844-400-300, 2025+1700-800],
-				"DS": [          373,          -960],
-				"HI": [ 1885-400-300,  463+1700-800],
-				"GW": [         3240,          -300],
-				"SI": [        -1600,          2523],
-				"SU": [            0,             0],
-				"SH": [     5257-400,     -151+1700],
-				"SL": [         7145,          -228],
-				"LF": [        -2765,           657],
-				"UW": [         5300,          3640], // there are excellent reasons beyond your comprehension for this placement
-				"SB": [        -1370,         -2250],
-				"SS": [         6473,          5598]
+			region_dev_coords = {
+				"SL": [-10000, -10000],
+				"SS": [-10000, -10000],
+				"DM": [-10000, -10000],
+				"HR": [-10000, -10000],
+				"LC": [-10000, -10000],
+				"LM": [-10000, -10000],
+				"MS": [-10000, -10000],
+				"OE": [-10000, -10000],
+				"RM": [-10000, -10000],
+				"UG": [-10000, -10000],
+
+				"CC": [ 3700,   2200],
+				"DS": [-1500, -3000],
+				"HI": [1600, 1500],
+				"GW": [6000, -4000],
+				"SI": [-1300,  2600],
+				"SU": [   -7,    -5],
+				"SH": [6300, 1000],
+				"SL": [13500, -1000],
+				"LF": [-3000, 800],
+				"UW": [ 6750,  3500],
+				"SB": [-4800, -1400],
+				"SS": [ 7400,  5500],
+				"CL": [7500, -1800],
+				"DM": [13250,  4250],
+				"HR": [-3600, -4800],
+				"LC": [9000, 9000],
+				"LM": [ 10500,   2300],
+				"MS": [ 17000,  -1500],
+				"OE": [-10000, -900],
+				"RM": [ 10000,  5500],
+				"UG": [2000, -3000],
+				"VS": [1600, -1400]
 			}
 			function room_coords(room) {
 				return (settings["dev"])
@@ -608,6 +652,16 @@
 					case "UW": return [0.70, 0.40, 0.25];
 					case "SB": return [0.80, 0.70, 0.20];
 					case "SS": return [0.75, 0.75, 0.75];
+					case "CL": return [0.30, 0.40, 0.40];
+					case "DM": return [0.30, 0.25, 0.55];
+					case "HR": return [0.35, 0.05, 0.00];
+					case "LC": return [0.50, 0.20, 0.20];
+					case "LM": return [0.80, 0.90, 0.70];
+					case "MS": return [0.50, 0.75, 0.95];
+					case "OE": return [0.85, 0.70, 0.55];
+					case "RM": return [0.00, 0.50, 0.70];
+					case "UG": return [0.55, 0.70, 0.45];
+					case "VS": return [0.45, 0.25, 0.35];
 				}
 			}
 		/*}}}*/
@@ -617,6 +671,13 @@
 				switch(region) {
 					case "GW": return [0.75, 0.45, 0.25, 1.00];
 					case "SL": return [0.30, 0.40, 0.20, 1.00];
+					case "CL": return [0.25, 0.35, 0.40, 1.00];
+					case "HR": return [0.80, 0.45, 0.00, 1.00];
+					case "MS": return [0.20, 0.50, 0.55, 1.00];
+					case "OE": return [0.15, 0.20, 0.25, 1.00];
+					case "RM": return [0.00, 0.00, 0.50, 1.00];
+					case "UG": return [0.40, 0.50, 0.35, 1.00];
+					case "VS": return [0.35, 0.40, 0.50, 1.00];
 					default:   return [0.05, 0.10, 0.90, 0.75];
 				}
 			}
@@ -774,7 +835,7 @@
 					}
 					image.image = new Image();
 					image.image.onload = load_round.bind(image.image);
-					image.image.src = "./Merged Screenshots/" + rooms[round%rooms.length].region + "/" + rooms[round%rooms.length].name + ".png";
+					image.image.src = screenshot(rooms[round%rooms.length]);
 				}
 			};
 	/*}}}*/
@@ -785,12 +846,28 @@
 			let rooms = [];
 			let rooms_by_name = {};
 			let connections = [];
+
 		/*{{{ load_progress*/
 			let load_progress = {
 				loading: 1,
+				to_load: [],
+				done_load: 0,
+				load: function(f) {
+					if(this.loading < 30) {
+						this.loading++;
+						f();
+					}
+					else this.to_load.push(f);
+				},
 				loaded: function() {
 					this.loading--;
-					if(this.loading === 0) {
+					this.done_load++;
+					let loading_percent = document.getElementById("loading_percent");
+					let percent = Math.round(100*this.done_load/(this.loading+this.to_load.length+this.done_load));
+					if(parseInt(loading_percent.innerText) !== percent)
+						loading_percent.innerText = percent;
+					if(this.to_load.length !== 0) this.load(this.to_load.shift());
+					else if(this.loading === 0) {
 						for(let i = 0; i < this.callbacks.length; i++) {
 							this.callbacks[i]();
 						}
@@ -818,7 +895,7 @@
 					if(test_hint_selection) {
 						image.image = new Image();
 						image.image.onload = load_round;
-						image.image.src = "./Merged Screenshots/" + rooms[0].region + "/" + rooms[0].name + ".png";
+						image.image.src = screenshot(rooms[0]);
 					}
 				}
 			});
@@ -841,35 +918,43 @@
 
 		/*{{{ load rooms*/
 				fetch("./regions").then(function(response) { return response.text(); }).then(async function(data) {
-					let region_abbrs = data.replaceAll("\r", "").split("\n");
-					for(let i = 0; i < region_abbrs.length; i++) {
-						(function(region) {
-						load_progress.loading++;
-						fetch("./map_" + region).then(function(response) { return response.text(); }).then(async function(data) {
-							data = data.replaceAll("\r", "");
-							let i = 0;
-							while(true) {
-								let j = data.indexOf("\n", i);
-								if(j === -1) break;
-								let line = data.substring(i, j);
-								if(line.substring(0, 10) === "Connection")
-									connections.push(new connection(line.replace(/^.*?:\s*/, "").split(","), programs["connection"]));
-								if(line.substring(0, 3) !== region + "_" && line.substring(0, 8) !== "GATE_" + region + "_") { i = j+1; continue; }
-								(function(name) {
-								load_progress.loading++;
-								fetch("./" + region + "/" + name).then(function(response) { return response.text(); }).then(async function(data) {
-									let new_room = new room(name, data.replaceAll("\r", ""), programs["room"]);
-									rooms.push(new_room);
-									rooms_by_name[name] = new_room;
-									load_progress.loaded();
-								});
-								})(line.replace(/:.*$/, ""));
-								line = line.replace(/^.*:\s*/, "").split(",");
-								i = j+1;
-							}
-							load_progress.loaded();
-						});
-						})(region_abbrs[i]);
+					let region_abbrs = data.replaceAll("\r", "").trimRight().split("\n");
+					let done_connections = {};
+					// put white first, try to give it priority
+					for(let c of ["white", "artificer", "gourmand", "rivulet", "saint", "spear"]) {
+						for(let i = 0; i < region_abbrs.length; i++) {
+							load_progress.load((function(c, region) {
+							fetch("./maps/map_" + region + "-" + c + ".txt").then(function(response) { return response.text(); }).then(async function(data) {
+								data = data.replaceAll("\r", "");
+								let i = 0;
+								while(true) {
+									let j = data.indexOf("\n", i);
+									if(j === -1) break;
+									let line = data.substring(i, j);
+									if(line === "") { i = j+1; continue; }
+									if(line.substring(0, 10) === "Connection") {
+										if(!(line in done_connections)) {
+											connections.push(new connection(line.replace(/^.*?:\s*/, "").split(","), programs["connection"]));
+											done_connections[line] = true;
+										}
+									}
+									if(line.substring(0, 3) !== region + "_" && line.substring(0, 8) !== "GATE_" + region + "_") { i = j+1; continue; }
+									load_progress.load((function(name) {
+									fetch("./" + c + "/" + region + "/" + name).then(function(response) { return response.text(); }).then(async function(data) {
+										let new_room = new room(c + "-" + name, data.replaceAll("\r", ""), programs["room"], !(name in rooms_by_name));
+										rooms.push(new_room);
+										if(!(name in rooms_by_name) || c === "white")
+											rooms_by_name[name] = new_room;
+										load_progress.loaded();
+									});
+									}).bind(null, line.replace(/:.*$/, "")));
+									line = line.replace(/^.*:\s*/, "").split(",");
+									i = j+1;
+								}
+								load_progress.loaded();
+							})
+							}).bind(null, c, region_abbrs[i]));
+						}
 					}
 					load_progress.loaded();
 				});
@@ -991,7 +1076,7 @@
 							random = simplerng(seed);
 							image.image = new Image();
 							image.image.onload = load_round.bind(image.image);
-							image.image.src = "./Merged Screenshots/" + rooms[round].region + "/" + rooms[round].name + ".png";
+							image.image.src = screenshot(rooms[round]);
 						}.bind(null, parseInt(line[1]), parseInt(line[2])));
 						break;
 					case "co":
@@ -1120,10 +1205,10 @@
 					if(guessed && solution !== null && solution.room.layer === i) {
 						gl.useProgram(programs["solution"]["program"]);
 						gl.uniformMatrix4fv(programs["solution"]["uniforms"]["model_view"], false, new Float32Array([
-							solution.room.w/35,              0,                               0, 0,
-							0,                               solution.room.h/35,              0, 0,
-							0,                               0,                               1, 0,
-							room_coords(solution.room)[0]-x, room_coords(solution.room)[1]+y, 0, 1
+							solution.room.w/35,                   0,                                    0, 0,
+							0,                                    solution.room.h/35,                   0, 0,
+							0,                                    0,                                    1, 0,
+							room_coords(solution.room)[0]-x+2/35, room_coords(solution.room)[1]+y+2/35, 0, 1
 						]));
 						solution.draw();
 						gl.useProgram(programs["room"]["program"]);
@@ -1247,12 +1332,12 @@
 			}
 	/*}}}*/
 
-	/*{{{ room(name, data, program)*/
-			function room(name, data, program) {
+	/*{{{ room(name, data, program, display)*/
+			function room(name, data, program, display) {
 
 		/*{{{ init*/
 				this.name = name;
-				this.region = name.replace(/^GATE_/, "").substring(0, 2);
+				this.region = name.replace(/^.*?-/, "").replace(/^GATE_/, "").substring(0, 2);
 				gl.useProgram(program["program"]);
 				let air_data   = [];
 				let water_data = [];
@@ -1322,6 +1407,14 @@
 				}
 			/*}}}*/
 
+				if(!display) {
+					delete(air_data);
+					delete(water_data);
+					delete(line_data);
+					this.draw = function() {};
+					return;
+				}
+
 				this.air_vertex_positions = gl.createBuffer();
 				gl.bindBuffer(gl.ARRAY_BUFFER, this.air_vertex_positions);
 				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(air_data), gl.STATIC_DRAW);
@@ -1332,8 +1425,8 @@
 					this.water_vertex_positions = gl.createBuffer();
 					gl.bindBuffer(gl.ARRAY_BUFFER, this.water_vertex_positions);
 					gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(water_data), gl.STATIC_DRAW);
-					delete(water_data);
 				}
+				delete(water_data);
 				this.line_vertex_positions = gl.createBuffer();
 				gl.bindBuffer(gl.ARRAY_BUFFER, this.line_vertex_positions);
 				gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(line_data), gl.STATIC_DRAW);
@@ -1351,7 +1444,7 @@
 					let layer_opacity = (settings["dev"]) ? 1 : Math.max(0, Math.abs(3/2-((layer-this.layer)+3)%3)-(3/2-1));
 					let color;
 					if(layer_opacity !== 0) {
-						if(!guessed || solution.room !== this) {
+						if(this.num_air !== 0 && (!guessed || solution.room !== this)) {
 							// Tell the attribute how to get data out of air_vertex_positions (ARRAY_BUFFER)
 							size = 2;          // 2 components per iteration
 							stride = 0;        // 0 = move forward size * sizeof(type) each iteration to get the next position
@@ -1459,6 +1552,14 @@
 				this.init = function() {
 					let start_room = rooms_by_name[data[0]];
 					let end_room   = rooms_by_name[data[1]];
+					if(start_room === undefined && data[0].substring(0, 5) === "GATE_") {
+						data[0] = "GATE_" + data[0].substring(8, 10) + data[0].substring(4, 7);
+						start_room = rooms_by_name[data[0]];
+					}
+					if(end_room === undefined && data[1].substring(0, 5) === "GATE_") {
+						data[1] = "GATE_" + data[1].substring(8, 10) + data[1].substring(4, 7);
+						end_room = rooms_by_name[data[1]];
+					}
 					this.start = [
 						room_coords(start_room)[0]-start_room.w/35+2*parseInt(data[2])/35,
 						room_coords(start_room)[1]-start_room.h/35+2*parseInt(data[3])/35
@@ -1843,7 +1944,7 @@
 		</span>
 		<span id="transition"   class="splash"></span>
 		<span id="loading_hint" class="splash" style="background-color:rgba(0, 0, 0, 0.75);"><h1></h1></span>
-		<span id="loading"      class="splash" style="opacity:1"><h1>Loading. . .</h1></span>
+		<span id="loading"      class="splash" style="opacity:1"><h1>Loading (<span id="loading_percent"></span>%). . .</h1></span>
 		<span id="js_splash"    class="splash" style="opacity:1"><h1>Please enable JavaScript</h1></span>
 
 <!--{{{ settings-->
@@ -1879,7 +1980,6 @@
 						<br />
 					</span>
 					<span>
-						<h2><a href="./DP/RWGG.html">Click here for the Downpour version!</a></h2>
 						WASD, arrow keys, optionally zoom (not mobile), and/or drag (mobile) to move<br />
 						Scroll or pinch (mobile) to zoom<br />
 						Space or tap (mobile) to change layers<br />
@@ -1900,15 +2000,15 @@
 							Difficulty:<br />
 							<label class="choice" style="float:left; margin-right:1em;">
 								<input type="radio" id="monk" name="difficulty" value="monk">
-								<span><img src="./MultiplayerPortrait11.png" alt="Difficulty: Monk" draggable="false"></span>
+								<span><img src="../MultiplayerPortrait11.png" alt="Difficulty: Monk" draggable="false"></span>
 							</label>
 							<label class="choice" style="float:left; margin-right:1em;">
 								<input type="radio" id="survivor" name="difficulty" value="survivor" checked="checked">
-								<span><img src="./MultiplayerPortrait01.png" alt="Difficulty: Survivor" draggable="false"></span>
+								<span><img src="../MultiplayerPortrait01.png" alt="Difficulty: Survivor" draggable="false"></span>
 							</label>
 							<label class="choice" style="float:left">
 								<input type="radio" id="hunter" name="difficulty" value="hunter">
-								<span><img src="./MultiplayerPortrait21.png" alt="Difficulty: Hunter" draggable="false"></span>
+								<span><img src="../MultiplayerPortrait21.png" alt="Difficulty: Hunter" draggable="false"></span>
 							</label>
 						</span>
 		<!--}}}-->
@@ -1923,7 +2023,7 @@
 								</td>
 								<td>
 									<label class="check choice">
-										<input type="checkbox" id="color" name="color"><span></span><br>
+										<input type="checkbox" id="color" name="color" checked="checked"><span></span><br>
 									</label>
 								</td>
 							</tr>
