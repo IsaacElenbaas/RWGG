@@ -276,6 +276,10 @@
 				settings["color"] = document.getElementById("color").checked;
 				settings["stretch"] = document.getElementById("stretch").checked;
 				settings["zoom_move"] = document.getElementById("zoom_move").checked;
+				if(document.getElementById("crosshair_enable").checked)
+					document.getElementById("crosshair").style.display = "unset";
+				else
+					document.getElementById("crosshair").style.display = "none";
 
 				if(document.getElementById("header").innerText === "SINGLEPLAYER") {
 					document.getElementById("loading_hint").style.opacity = "1";
@@ -2047,6 +2051,16 @@
 									</label>
 								</td>
 							</tr>
+							<tr>
+								<td>
+									<span style="margin-right:0.5em">Crosshair:</span>
+								</td>
+								<td>
+									<label class="check choice">
+										<input type="checkbox" id="crosshair_enable" name="crosshair_enable" checked="checked"><span></span><br>
+									</label>
+								</td>
+							</tr>
 						</table>
 		<!--}}}-->
 
@@ -2093,5 +2107,13 @@
 			</span>
 		</span>
 		<canvas id="canvas" style="z-index:-3"></canvas>
+		<span id="crosshair" style="position:absolute; left:50%; top:50%; transform:translateX(-2.5em); z-index:-3;">
+			<span style="position:absolute">
+				<span style="float:left; width:5em; height:0.1em; background-image:linear-gradient(to right,white,rgba(200,200,200,200),rgba(127,127,127,127),rgba(0,0,0,0),rgba(127,127,127,127),rgba(200,200,200,200),white);"></span>
+			</span>
+			<span style="position:absolute; transform:rotate(90deg);">
+				<span style="float:left; width:5em; height:0.1em; background-image:linear-gradient(to right,white,rgba(200,200,200,200),rgba(127,127,127,127),rgba(0,0,0,0),rgba(127,127,127,127),rgba(200,200,200,200),white);"></span>
+			</span>
+		</span>
 	</body>
 </html>
